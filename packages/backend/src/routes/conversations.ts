@@ -98,7 +98,8 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
         SUM(s.reasoning_tokens) as reasoning_tokens,
         COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
         COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
-        COALESCE(mc.cache_cost_per_m, 0) as cache_cost_per_m,
+        COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
+        COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
         COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
       FROM atomic_spans s
       LEFT JOIN model_costs mc ON s.model_name = mc.model_name
@@ -116,10 +117,11 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
 
       const inputCost = (inputTokens * Number(row.input_cost_per_m)) / 1_000_000;
       const outputCost = (outputTokens * Number(row.output_cost_per_m)) / 1_000_000;
-      const cacheReadCost = (cacheReadTokens * Number(row.cache_cost_per_m)) / 1_000_000;
+      const cacheReadCost = (cacheReadTokens * Number(row.cache_read_cost_per_m)) / 1_000_000;
+      const cacheWriteCost = (cacheWriteTokens * Number(row.cache_write_cost_per_m)) / 1_000_000;
       const reasoningCost = (reasoningTokens * Number(row.reasoning_cost_per_m)) / 1_000_000;
       
-      const totalCost = inputCost + outputCost + cacheReadCost + reasoningCost;
+      const totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost + reasoningCost;
 
       return {
         model_name: row.model_name,
@@ -131,13 +133,15 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
         rates: {
           input_cost_per_m: row.input_cost_per_m,
           output_cost_per_m: row.output_cost_per_m,
-          cache_cost_per_m: row.cache_cost_per_m,
+          cache_read_cost_per_m: row.cache_read_cost_per_m,
+          cache_write_cost_per_m: row.cache_write_cost_per_m,
           reasoning_cost_per_m: row.reasoning_cost_per_m
         },
         costs: {
           input_cost: Number(inputCost.toFixed(6)),
           output_cost: Number(outputCost.toFixed(6)),
           cache_read_cost: Number(cacheReadCost.toFixed(6)),
+          cache_write_cost: Number(cacheWriteCost.toFixed(6)),
           reasoning_cost: Number(reasoningCost.toFixed(6)),
           total_cost: Number(totalCost.toFixed(6))
         }

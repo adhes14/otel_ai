@@ -41,7 +41,7 @@ const totals = computed(() => {
 
     inputCost += item.costs.input_cost;
     outputCost += item.costs.output_cost;
-    cacheCost += item.costs.cache_read_cost;
+    cacheCost += item.costs.cache_read_cost + item.costs.cache_write_cost;
     reasoningCost += item.costs.reasoning_cost;
   }
 

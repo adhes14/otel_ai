@@ -17,7 +17,7 @@ router.get('/api/model-costs', (req: Request, res: Response) => {
 
 // POST /api/model-costs - Create a new model cost entry
 router.post('/api/model-costs', (req: Request, res: Response) => {
-  const { model_name, input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m } = req.body;
+  const { model_name, input_cost_per_m, output_cost_per_m, cache_read_cost_per_m, cache_write_cost_per_m, reasoning_cost_per_m } = req.body;
 
   if (!model_name || typeof model_name !== 'string' || model_name.trim() === '') {
     return res.status(400).json({ error: 'model_name is required and must be a non-empty string' });
@@ -30,13 +30,14 @@ router.post('/api/model-costs', (req: Request, res: Response) => {
     }
 
     db.prepare(`
-      INSERT INTO model_costs (model_name, input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO model_costs (model_name, input_cost_per_m, output_cost_per_m, cache_read_cost_per_m, cache_write_cost_per_m, reasoning_cost_per_m)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       model_name,
       Number(input_cost_per_m ?? 0),
       Number(output_cost_per_m ?? 0),
-      Number(cache_cost_per_m ?? 0),
+      Number(cache_read_cost_per_m ?? 0),
+      Number(cache_write_cost_per_m ?? 0),
       Number(reasoning_cost_per_m ?? 0)
     );
 
@@ -53,7 +54,7 @@ router.post('/api/model-costs', (req: Request, res: Response) => {
 // PUT /api/model-costs/:modelName - Update an existing model cost entry
 router.put('/api/model-costs/:modelName', (req: Request, res: Response) => {
   const { modelName } = req.params;
-  const { input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m } = req.body;
+  const { input_cost_per_m, output_cost_per_m, cache_read_cost_per_m, cache_write_cost_per_m, reasoning_cost_per_m } = req.body;
 
   try {
     const existing = db.prepare('SELECT 1 FROM model_costs WHERE model_name = ?').get(modelName);
@@ -63,12 +64,13 @@ router.put('/api/model-costs/:modelName', (req: Request, res: Response) => {
 
     db.prepare(`
       UPDATE model_costs
-      SET input_cost_per_m = ?, output_cost_per_m = ?, cache_cost_per_m = ?, reasoning_cost_per_m = ?
+      SET input_cost_per_m = ?, output_cost_per_m = ?, cache_read_cost_per_m = ?, cache_write_cost_per_m = ?, reasoning_cost_per_m = ?
       WHERE model_name = ?
     `).run(
       Number(input_cost_per_m ?? 0),
       Number(output_cost_per_m ?? 0),
-      Number(cache_cost_per_m ?? 0),
+      Number(cache_read_cost_per_m ?? 0),
+      Number(cache_write_cost_per_m ?? 0),
       Number(reasoning_cost_per_m ?? 0),
       modelName
     );

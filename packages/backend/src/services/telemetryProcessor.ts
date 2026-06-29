@@ -159,8 +159,8 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             // 1. Model Auto-Discovery: Hot insertion of model costs at $0.00
             db.prepare(`
               INSERT OR IGNORE INTO model_costs (
-                model_name, input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m
-              ) VALUES (?, 0, 0, 0, 0)
+                model_name, input_cost_per_m, output_cost_per_m, cache_read_cost_per_m, cache_write_cost_per_m, reasoning_cost_per_m
+              ) VALUES (?, 0, 0, 0, 0, 0)
             `).run(modelName);
 
             // 2. Upsert Conversation

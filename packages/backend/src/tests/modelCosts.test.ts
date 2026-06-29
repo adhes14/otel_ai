@@ -46,7 +46,8 @@ describe('Model Costs CRUD API', () => {
       model_name: 'gpt-4o',
       input_cost_per_m: 5.0,
       output_cost_per_m: 15.0,
-      cache_cost_per_m: 2.5,
+      cache_read_cost_per_m: 2.5,
+      cache_write_cost_per_m: 2.0,
       reasoning_cost_per_m: 10.0
     };
 
@@ -82,7 +83,8 @@ describe('Model Costs CRUD API', () => {
     const updatedRates = {
       input_cost_per_m: 2.5,
       output_cost_per_m: 10.0,
-      cache_cost_per_m: 1.25,
+      cache_read_cost_per_m: 1.25,
+      cache_write_cost_per_m: 1.0,
       reasoning_cost_per_m: 8.0
     };
 

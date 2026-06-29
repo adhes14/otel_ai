@@ -20,7 +20,16 @@ export function runMigrations() {
     if (infoConv && infoConv.length > 0) {
       const hasTitle = infoConv.some(col => col.name === 'title');
       if (!hasTitle) {
-        logger.info('Detected old database schema (missing title on conversations). Dropping atomic_spans and conversations for recreation.');
+        logger.info('Detected old database schema (missing title on conversations). Dropping tables for recreation.');
+        needsMigration = true;
+      }
+    }
+
+    const infoCosts = db.pragma("table_info(model_costs)") as any[];
+    if (infoCosts && infoCosts.length > 0) {
+      const hasCacheWriteCost = infoCosts.some(col => col.name === 'cache_write_cost_per_m');
+      if (!hasCacheWriteCost) {
+        logger.info('Detected old database schema (missing cache_write_cost_per_m). Dropping tables for recreation.');
         needsMigration = true;
       }
     }
@@ -32,6 +41,7 @@ export function runMigrations() {
     if (needsMigration) {
       db.prepare('DROP TABLE IF EXISTS atomic_spans').run();
       db.prepare('DROP TABLE IF EXISTS conversations').run();
+      db.prepare('DROP TABLE IF EXISTS model_costs').run();
     }
 
     // 1. Raw Telemetry Table
@@ -50,7 +60,8 @@ export function runMigrations() {
         model_name TEXT PRIMARY KEY,
         input_cost_per_m REAL NOT NULL DEFAULT 0,
         output_cost_per_m REAL NOT NULL DEFAULT 0,
-        cache_cost_per_m REAL NOT NULL DEFAULT 0,
+        cache_read_cost_per_m REAL NOT NULL DEFAULT 0,
+        cache_write_cost_per_m REAL NOT NULL DEFAULT 0,
         reasoning_cost_per_m REAL NOT NULL DEFAULT 0
       );
     `).run();

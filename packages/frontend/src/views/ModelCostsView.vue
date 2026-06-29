@@ -10,7 +10,8 @@ const editingModelName = ref<string | null>(null);
 const editForm = ref<Omit<ModelCost, 'model_name'>>({
   input_cost_per_m: 0,
   output_cost_per_m: 0,
-  cache_cost_per_m: 0,
+  cache_read_cost_per_m: 0,
+  cache_write_cost_per_m: 0,
   reasoning_cost_per_m: 0
 });
 
@@ -20,7 +21,8 @@ const newModelForm = ref<ModelCost>({
   model_name: '',
   input_cost_per_m: 0,
   output_cost_per_m: 0,
-  cache_cost_per_m: 0,
+  cache_read_cost_per_m: 0,
+  cache_write_cost_per_m: 0,
   reasoning_cost_per_m: 0
 });
 const addError = ref<string | null>(null);
@@ -34,7 +36,8 @@ const startEdit = (cost: ModelCost) => {
   editForm.value = {
     input_cost_per_m: cost.input_cost_per_m,
     output_cost_per_m: cost.output_cost_per_m,
-    cache_cost_per_m: cost.cache_cost_per_m,
+    cache_read_cost_per_m: cost.cache_read_cost_per_m,
+    cache_write_cost_per_m: cost.cache_write_cost_per_m,
     reasoning_cost_per_m: cost.reasoning_cost_per_m
   };
 };
@@ -74,7 +77,8 @@ const submitAdd = async () => {
       model_name: '',
       input_cost_per_m: 0,
       output_cost_per_m: 0,
-      cache_cost_per_m: 0,
+      cache_read_cost_per_m: 0,
+      cache_write_cost_per_m: 0,
       reasoning_cost_per_m: 0
     };
     showAddForm.value = false;
@@ -109,7 +113,7 @@ const submitAdd = async () => {
           <label>Model Name (OTel identifier, e.g., 'gpt-4o')</label>
           <input v-model="newModelForm.model_name" placeholder="e.g. gpt-4o-mini" required />
         </div>
-        <div class="grid-4">
+        <div class="grid-5">
           <div class="form-group">
             <label>Input Cost / M</label>
             <input type="number" step="0.0001" min="0" v-model.number="newModelForm.input_cost_per_m" required />
@@ -119,8 +123,12 @@ const submitAdd = async () => {
             <input type="number" step="0.0001" min="0" v-model.number="newModelForm.output_cost_per_m" required />
           </div>
           <div class="form-group">
-            <label>Cache Cost / M</label>
-            <input type="number" step="0.0001" min="0" v-model.number="newModelForm.cache_cost_per_m" required />
+            <label>Cache Read Cost / M</label>
+            <input type="number" step="0.0001" min="0" v-model.number="newModelForm.cache_read_cost_per_m" required />
+          </div>
+          <div class="form-group">
+            <label>Cache Write Cost / M</label>
+            <input type="number" step="0.0001" min="0" v-model.number="newModelForm.cache_write_cost_per_m" required />
           </div>
           <div class="form-group">
             <label>Reasoning Cost / M</label>
@@ -146,7 +154,8 @@ const submitAdd = async () => {
             <th>Model Name</th>
             <th>Input Cost /M</th>
             <th>Output Cost /M</th>
-            <th>Cache Cost /M</th>
+            <th>Cache Read /M</th>
+            <th>Cache Write /M</th>
             <th>Reasoning Cost /M</th>
             <th>Status</th>
             <th>Actions</th>
@@ -170,10 +179,16 @@ const submitAdd = async () => {
               <span v-else>${{ cost.output_cost_per_m.toFixed(2) }}</span>
             </td>
 
-            <!-- Cache cost -->
+            <!-- Cache read cost -->
             <td>
-              <input v-if="editingModelName === cost.model_name" type="number" step="0.0001" min="0" v-model.number="editForm.cache_cost_per_m" class="table-input" />
-              <span v-else>${{ cost.cache_cost_per_m.toFixed(2) }}</span>
+              <input v-if="editingModelName === cost.model_name" type="number" step="0.0001" min="0" v-model.number="editForm.cache_read_cost_per_m" class="table-input" />
+              <span v-else>${{ cost.cache_read_cost_per_m.toFixed(2) }}</span>
+            </td>
+
+            <!-- Cache write cost -->
+            <td>
+              <input v-if="editingModelName === cost.model_name" type="number" step="0.0001" min="0" v-model.number="editForm.cache_write_cost_per_m" class="table-input" />
+              <span v-else>${{ cost.cache_write_cost_per_m.toFixed(2) }}</span>
             </td>
 
             <!-- Reasoning cost -->
@@ -287,9 +302,9 @@ const submitAdd = async () => {
   font-weight: 500;
 }
 
-.grid-4 {
+.grid-5 {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
 }
 
@@ -395,7 +410,7 @@ const submitAdd = async () => {
 }
 
 @media (max-width: 768px) {
-  .grid-4 {
+  .grid-5 {
     grid-template-columns: 1fr 1fr;
   }
 }

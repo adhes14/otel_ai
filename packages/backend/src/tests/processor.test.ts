@@ -96,7 +96,8 @@ describe('Telemetry Processing Engine', () => {
     expect(modelCost).toBeDefined();
     expect(modelCost.input_cost_per_m).toBe(0);
     expect(modelCost.output_cost_per_m).toBe(0);
-    expect(modelCost.cache_cost_per_m).toBe(0);
+    expect(modelCost.cache_read_cost_per_m).toBe(0);
+    expect(modelCost.cache_write_cost_per_m).toBe(0);
     expect(modelCost.reasoning_cost_per_m).toBe(0);
 
     // Verify atomic span was inserted correctly

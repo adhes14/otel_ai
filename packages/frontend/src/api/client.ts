@@ -14,7 +14,8 @@ export interface ConversationsResponse {
 export interface ModelRate {
   input_cost_per_m: number;
   output_cost_per_m: number;
-  cache_cost_per_m: number;
+  cache_read_cost_per_m: number;
+  cache_write_cost_per_m: number;
   reasoning_cost_per_m: number;
 }
 
@@ -30,6 +31,7 @@ export interface ModelCostBreakdown {
     input_cost: number;
     output_cost: number;
     cache_read_cost: number;
+    cache_write_cost: number;
     reasoning_cost: number;
     total_cost: number;
   };
@@ -59,7 +61,8 @@ export interface ModelCost {
   model_name: string;
   input_cost_per_m: number;
   output_cost_per_m: number;
-  cache_cost_per_m: number;
+  cache_read_cost_per_m: number;
+  cache_write_cost_per_m: number;
   reasoning_cost_per_m: number;
   created_at?: string;
 }

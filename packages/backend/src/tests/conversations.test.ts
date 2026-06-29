@@ -38,11 +38,11 @@ describe('Conversations and Spans Query API', () => {
     db.prepare('DELETE FROM model_costs').run();
 
     // 1. Seed models
-    db.prepare('INSERT INTO model_costs (model_name, input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m) VALUES (?, ?, ?, ?, ?)').run(
-      'gpt-4o', 10, 20, 5, 15
+    db.prepare('INSERT INTO model_costs (model_name, input_cost_per_m, output_cost_per_m, cache_read_cost_per_m, cache_write_cost_per_m, reasoning_cost_per_m) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'gpt-4o', 10, 20, 5, 5, 15
     );
-    db.prepare('INSERT INTO model_costs (model_name, input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m) VALUES (?, ?, ?, ?, ?)').run(
-      'claude-3-5', 15, 30, 8, 25
+    db.prepare('INSERT INTO model_costs (model_name, input_cost_per_m, output_cost_per_m, cache_read_cost_per_m, cache_write_cost_per_m, reasoning_cost_per_m) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'claude-3-5', 15, 30, 8, 8, 25
     );
 
     // 2. Seed conversations (older first, newer last)
@@ -113,8 +113,9 @@ describe('Conversations and Spans Query API', () => {
     expect(gptAgg.costs.input_cost).toBe(1.0);
     expect(gptAgg.costs.output_cost).toBe(1.0);
     expect(gptAgg.costs.cache_read_cost).toBe(0.1);
+    expect(gptAgg.costs.cache_write_cost).toBe(0.05);
     expect(gptAgg.costs.reasoning_cost).toBe(0.075);
-    expect(gptAgg.costs.total_cost).toBe(2.175);
+    expect(gptAgg.costs.total_cost).toBe(2.225);
 
     // Test GET /api/conversations/:id (Non-existent detail)
     const missingDetailRes = await fetch(`${baseUrl}/api/conversations/conv-missing`);
