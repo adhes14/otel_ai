@@ -189,3 +189,43 @@ input:focus, select:focus, textarea:focus {
   color: var(--accent-light);
   border: 1px solid var(--accent-border);
 }
+
+/* Global Print Styles */
+@media print {
+  .no-print,
+  .app-header,
+  .sidebar-wrapper,
+  aside,
+  button,
+  .export-btn-group,
+  .model-filters-section,
+  .kpis-section,
+  .charts-grid {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+
+  .app-container,
+  .app-content,
+  .dashboard-layout,
+  .detail-wrapper,
+  .detail-container {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
+}

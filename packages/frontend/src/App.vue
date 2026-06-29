@@ -7,7 +7,8 @@
       </div>
       <nav class="app-nav">
         <router-link to="/" class="nav-link" active-class="active">Dashboard</router-link>
-        <router-link to="/settings/model-costs" class="nav-link" active-class="active">⚙️ Model Costs</router-link>
+        <router-link to="/settings/model-costs" class="nav-link" active-class="active">💰 Model Costs</router-link>
+        <router-link to="/settings" class="nav-link" active-class="active">⚙️ Settings</router-link>
       </nav>
     </header>
     <main class="app-content">

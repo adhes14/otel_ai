@@ -124,4 +124,15 @@ export const api = {
       method: 'DELETE',
     });
   },
+
+  getDbStat: () => {
+    return request<{ size_bytes: number; size_mb: number }>('/api/maintenance/db-stat');
+  },
+
+  purgeRawTelemetry: (olderThanDays: number) => {
+    return request<{ deleted_count: number; size_bytes: number; size_mb: number }>(
+      `/api/maintenance/raw-telemetry?older_than_days=${olderThanDays}`,
+      { method: 'DELETE' }
+    );
+  },
 };

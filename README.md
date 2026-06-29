@@ -104,7 +104,9 @@ The application includes a fully responsive split master-detail dashboard featur
 *   **Interactive Visualizations:**
     *   **Cost Distribution (Donut Chart):** Shows the cost distribution per model in dollars.
     *   **Token Consumption Over Time (Bar Chart):** Stacks input, output, cache read/write, and reasoning tokens for sequential spans (capped at 50 spans for clarity).
-*   **Model Cost Manager:** Full settings page (`/settings/model-costs`) supporting rate creation, deletion, and inline edits. A status warning `⚠️ Cost not configured` badge alerts users to $0.00 rate models discovered via OTel telemetry.
+*   **Model Cost Manager:** Full sub-view (`/settings/model-costs`) supporting rate creation, deletion, and inline edits. A status warning `⚠️ Cost not configured` badge alerts users to $0.00 rate models discovered via OTel telemetry.
+*   **Conversation Export System:** In-header actions allowing copying a structured Markdown report of the session (adhering to active model filter pills) directly to the clipboard, or printing/saving as PDF using a print media-optimized stylesheet.
+*   **System Settings & Maintenance:** Dedicated configuration panel (`/settings`) showing the local database file size (auto-refreshable) and allowing purging of raw telemetry logs older than `N` days, with a safety confirmation modal.
 
 ---
 
@@ -135,3 +137,7 @@ pnpm test
 *   **`GET /api/conversations`**: Returns a list of conversations sorted from newest to oldest, with cursor-based pagination and a list of distinct models used.
 *   **`GET /api/conversations/:id`**: Returns conversation metadata along with token counts and calculated financial costs aggregated per model.
 *   **`GET /api/conversations/:id/spans`**: Lists all flat atomic spans representing LLM interactions (where span name is `'chat'` or starts with `'chat '`) belonging to the conversation.
+
+### ⚙️ System Maintenance
+*   **`GET /api/maintenance/db-stat`**: Returns the local SQLite database file size in bytes and megabytes.
+*   **`DELETE /api/maintenance/raw-telemetry?older_than_days=N`**: Deletes raw telemetry log records older than `N` days, checkpoints the WAL, and vacuums the database to release unused disk space back to the filesystem.

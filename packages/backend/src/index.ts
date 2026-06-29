@@ -5,6 +5,7 @@ import { runMigrations } from './db/migrations.js';
 import tracesRouter from './routes/traces.js';
 import modelCostsRouter from './routes/modelCosts.js';
 import conversationsRouter from './routes/conversations.js';
+import maintenanceRouter from './routes/maintenance.js';
 import logger from './utils/logger.js';
 
 // Run migrations on startup
@@ -35,6 +36,7 @@ if (!isTest) {
 app.use(tracesRouter);
 app.use(modelCostsRouter);
 app.use(conversationsRouter);
+app.use(maintenanceRouter);
 
 // GET /healthz
 app.get('/healthz', (req, res) => {

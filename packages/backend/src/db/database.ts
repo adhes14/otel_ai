@@ -41,7 +41,7 @@ function dotenvConfig(envFilePath: string) {
 
 // Resolve DB path
 const rawDbPath = process.env.DB_PATH || '../../../../data/otel_ai.db';
-let dbPath: string;
+export let dbPath: string;
 
 if (path.isAbsolute(rawDbPath)) {
   dbPath = rawDbPath;
