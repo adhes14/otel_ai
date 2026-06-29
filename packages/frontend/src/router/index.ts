@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import DashboardView from '../views/DashboardView.vue';
 import ModelCostsView from '../views/ModelCostsView.vue';
 import SettingsView from '../views/SettingsView.vue';
+import RawTelemetryView from '../views/RawTelemetryView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -10,6 +11,11 @@ const router = createRouter({
       path: '/',
       name: 'dashboard',
       component: DashboardView,
+    },
+    {
+      path: '/telemetry',
+      name: 'telemetry',
+      component: RawTelemetryView,
     },
     {
       path: '/settings',

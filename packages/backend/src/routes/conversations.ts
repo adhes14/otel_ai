@@ -216,4 +216,23 @@ router.patch('/api/conversations/:id', (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/conversations/:id - Delete a conversation and its atomic spans
+router.delete('/api/conversations/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const conversation = db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id);
+    if (!conversation) {
+      return res.status(404).json({ error: `Conversation "${id}" not found` });
+    }
+
+    db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+
+    return res.status(200).json({ status: 'ok', id });
+  } catch (err) {
+    logger.error({ err, id }, 'Failed to delete conversation');
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 export default router;

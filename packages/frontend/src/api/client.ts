@@ -67,6 +67,31 @@ export interface ModelCost {
   created_at?: string;
 }
 
+export interface RawTelemetrySummary {
+  id: number;
+  conversation_id: string | null;
+  payload_size: number;
+  created_at: number;
+}
+
+export interface RawTelemetryResponse {
+  telemetries: RawTelemetrySummary[];
+  next_cursor: string | null;
+}
+
+export interface RawTelemetryDetail {
+  id: number;
+  conversation_id: string | null;
+  payload: any;
+  created_at: number;
+}
+
+export interface ConversationRawTelemetry {
+  id: number;
+  created_at: number;
+  payload_size: number;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
@@ -108,6 +133,12 @@ export const api = {
     });
   },
 
+  deleteConversation: (id: string) => {
+    return request<{ status: string; id: string }>(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
   getModelCosts: () => {
     return request<ModelCost[]>('/api/model-costs');
   },
@@ -141,5 +172,24 @@ export const api = {
       `/api/maintenance/raw-telemetry?older_than_days=${olderThanDays}`,
       { method: 'DELETE' }
     );
+  },
+
+  getRawTelemetries: (limit = 20, cursor: string | null = null, search: string | null = null) => {
+    let url = `/api/raw-telemetry?limit=${limit}`;
+    if (cursor) {
+      url += `&cursor=${encodeURIComponent(cursor)}`;
+    }
+    if (search) {
+      url += `&search=${encodeURIComponent(search)}`;
+    }
+    return request<RawTelemetryResponse>(url);
+  },
+
+  getRawTelemetry: (id: number | string) => {
+    return request<RawTelemetryDetail>(`/api/raw-telemetry/${encodeURIComponent(id)}`);
+  },
+
+  getConversationRawTelemetries: (conversationId: string) => {
+    return request<ConversationRawTelemetry[]>(`/api/conversations/${encodeURIComponent(conversationId)}/raw-telemetry`);
   },
 };

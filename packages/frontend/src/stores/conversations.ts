@@ -116,6 +116,22 @@ export const useConversationsStore = defineStore('conversations', () => {
     }
   };
 
+  const deleteConversation = async (id: string) => {
+    error.value = null;
+    try {
+      await api.deleteConversation(id);
+      conversations.value = conversations.value.filter(c => c.id !== id);
+      if (selectedId.value === id) {
+        selectedId.value = null;
+        selectedDetail.value = null;
+        selectedSpans.value = [];
+      }
+    } catch (err: any) {
+      error.value = err.message || 'Failed to delete conversation';
+      throw err;
+    }
+  };
+
   return {
     conversations,
     nextCursor,
@@ -133,5 +149,6 @@ export const useConversationsStore = defineStore('conversations', () => {
     selectConversation,
     toggleModelFilter,
     updateTitle,
+    deleteConversation,
   };
 });
