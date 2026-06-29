@@ -115,4 +115,4 @@ pnpm test
 ### 💬 Conversations & Spans Querying
 *   **`GET /api/conversations`**: Returns a list of conversations sorted from newest to oldest, with cursor-based pagination and a list of distinct models used.
 *   **`GET /api/conversations/:id`**: Returns conversation metadata along with token counts and calculated financial costs aggregated per model.
-*   **`GET /api/conversations/:id/spans`**: Lists all flat atomic spans (where `name == 'chat'`) belonging to the conversation.
+*   **`GET /api/conversations/:id/spans`**: Lists all flat atomic spans representing LLM interactions (where span name is `'chat'` or starts with `'chat '`) belonging to the conversation.
