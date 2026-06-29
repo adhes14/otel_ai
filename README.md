@@ -99,8 +99,9 @@ pnpm build:frontend
 
 The application includes a fully responsive split master-detail dashboard featuring:
 *   **Chronological Session History:** Scrollable panel showing conversation title, date, ID, and active models. Real-time client-side search/filtering is supported, along with infinite scroll paging.
+*   **Editable Conversation Titles:** Supports editing the conversation title directly from the detail header inline (by clicking the title). Changes are saved on Enter or blur, and persist in the database.
 *   **Model Filter Checkboxes:** Filter out specific model spans with compute/token updates on-the-fly.
-*   **KPI Cards:** Shows total counts and dollar cost breakdowns for Input, Output, Cache (Read/Write), and Reasoning tokens.
+*   **KPI Cards:** Shows total counts and dollar cost breakdowns for Input, Output, Cache (Read/Write), and Reasoning tokens, plus a dedicated **Cache Savings** card displaying the overall percentage savings and standard-billing cost if caching were disabled.
 *   **Interactive Visualizations:**
     *   **Cost Distribution (Donut Chart):** Shows the cost distribution per model in dollars.
     *   **Token Consumption Over Time (Bar Chart):** Stacks input, output, cache read/write, and reasoning tokens for sequential spans (capped at 50 spans for clarity).
@@ -136,6 +137,7 @@ pnpm test
 ### 💬 Conversations & Spans Querying
 *   **`GET /api/conversations`**: Returns a list of conversations sorted from newest to oldest, with cursor-based pagination and a list of distinct models used.
 *   **`GET /api/conversations/:id`**: Returns conversation metadata along with token counts and calculated financial costs aggregated per model.
+*   **`PATCH /api/conversations/:id`**: Updates the title of a conversation (expects `{ title: string }` payload).
 *   **`GET /api/conversations/:id/spans`**: Lists all flat atomic spans representing LLM interactions (where span name is `'chat'` or starts with `'chat '`) belonging to the conversation.
 
 ### ⚙️ System Maintenance

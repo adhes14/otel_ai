@@ -16,8 +16,8 @@ const shortId = computed(() => {
 });
 
 const relativeTime = computed(() => {
-  const diff = Date.now() - props.conversation.last_seen_at;
-  const secs = Math.floor(diff / 1000);
+  const diff = Date.now() - props.conversation.last_seen_at * 1000;
+  const secs = Math.max(0, Math.floor(diff / 1000));
   const mins = Math.floor(secs / 60);
   const hours = Math.floor(mins / 60);
   const days = Math.floor(hours / 24);

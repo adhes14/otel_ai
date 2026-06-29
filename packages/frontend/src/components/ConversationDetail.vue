@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useConversationsStore } from '../stores/conversations.js';
 import KpiCards from './KpiCards.vue';
 import CostDonutChart from './CostDonutChart.vue';
@@ -57,8 +57,44 @@ const savingsFromCaching = computed(() => {
   }, 0);
 });
 
+// Date formatting helper (input timestamp is in Unix seconds, convert to ms)
 const formatDate = (timestamp: number) => {
-  return new Date(timestamp).toLocaleString();
+  return new Date(timestamp * 1000).toLocaleString();
+};
+
+// Title edit state and logic
+const isEditing = ref(false);
+const editTitleVal = ref('');
+const titleInput = ref<HTMLInputElement | null>(null);
+
+watch(() => store.selectedId, () => {
+  isEditing.value = false;
+});
+
+const startEdit = () => {
+  editTitleVal.value = store.selectedDetail?.title || 'Untitled Session';
+  isEditing.value = true;
+  setTimeout(() => {
+    titleInput.value?.focus();
+    titleInput.value?.select();
+  }, 50);
+};
+
+const saveEdit = async () => {
+  if (!isEditing.value || !store.selectedDetail) return;
+  const newTitle = editTitleVal.value.trim();
+  if (newTitle && newTitle !== store.selectedDetail.title) {
+    try {
+      await store.updateTitle(store.selectedDetail.id, newTitle);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  isEditing.value = false;
+};
+
+const cancelEdit = () => {
+  isEditing.value = false;
 };
 
 const toggleModel = (modelName: string) => {
@@ -122,7 +158,26 @@ const printPdf = () => {
     <!-- Header -->
     <div class="detail-header">
       <div class="title-section">
-        <h1>{{ store.selectedDetail.title || 'Untitled Session' }}</h1>
+        <div v-if="isEditing" class="title-edit-container">
+          <input
+            ref="titleInput"
+            v-model="editTitleVal"
+            class="title-edit-input"
+            @keydown.enter="saveEdit"
+            @keydown.escape="cancelEdit"
+            @blur="saveEdit"
+            maxlength="200"
+          />
+        </div>
+        <h1
+          v-else
+          class="editable-title"
+          @click="startEdit"
+          title="Click to edit conversation title"
+        >
+          {{ store.selectedDetail.title || 'Untitled Session' }}
+          <span class="edit-icon">✏️</span>
+        </h1>
         <div class="meta-info">
           <span class="meta-id">ID: <code>{{ store.selectedDetail.id }}</code></span>
           <span class="meta-dot">•</span>
@@ -292,6 +347,53 @@ const printPdf = () => {
 .title-section h1 {
   font-size: 24px;
   margin-bottom: 6px;
+}
+
+.editable-title {
+  font-size: 24px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: -6px; /* offset padding */
+  transition: background-color 0.2s;
+}
+
+.editable-title:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.edit-icon {
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.editable-title:hover .edit-icon {
+  opacity: 0.6;
+}
+
+.title-edit-container {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.title-edit-input {
+  font-size: 24px;
+  font-weight: bold;
+  background-color: var(--bg-surface-active);
+  border: 1px solid var(--accent);
+  color: var(--text-bright);
+  border-radius: 4px;
+  padding: 2px 6px;
+  width: 100%;
+  max-width: 500px;
+  font-family: inherit;
+  outline: none;
 }
 
 .meta-info {

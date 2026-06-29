@@ -184,4 +184,36 @@ router.get('/api/conversations/:id/spans', (req: Request, res: Response) => {
   }
 });
 
+// PATCH /api/conversations/:id - Update conversation title
+router.patch('/api/conversations/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { title } = req.body;
+
+  if (typeof title !== 'string') {
+    return res.status(400).json({ error: 'Title must be a string' });
+  }
+
+  const trimmedTitle = title.trim();
+  if (trimmedTitle.length === 0) {
+    return res.status(400).json({ error: 'Title cannot be empty' });
+  }
+  if (trimmedTitle.length > 200) {
+    return res.status(400).json({ error: 'Title must be 200 characters or less' });
+  }
+
+  try {
+    const conversation = db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id);
+    if (!conversation) {
+      return res.status(404).json({ error: `Conversation "${id}" not found` });
+    }
+
+    db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(trimmedTitle, id);
+
+    return res.status(200).json({ id, title: trimmedTitle });
+  } catch (err) {
+    logger.error({ err, id, title }, 'Failed to update conversation title');
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 export default router;

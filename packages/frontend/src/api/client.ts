@@ -101,6 +101,13 @@ export const api = {
     return request<AtomicSpan[]>(`/api/conversations/${encodeURIComponent(id)}/spans`);
   },
 
+  updateConversationTitle: (id: string, title: string) => {
+    return request<{ id: string; title: string }>(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+  },
+
   getModelCosts: () => {
     return request<ModelCost[]>('/api/model-costs');
   },

@@ -31,6 +31,7 @@ const totals = computed(() => {
   let outputCost = 0;
   let cacheCost = 0;
   let reasoningCost = 0;
+  let costWithoutCache = 0;
 
   for (const item of props.breakdown) {
     input += item.input_tokens;
@@ -43,7 +44,23 @@ const totals = computed(() => {
     outputCost += item.costs.output_cost;
     cacheCost += item.costs.cache_read_cost + item.costs.cache_write_cost;
     reasoningCost += item.costs.reasoning_cost;
+
+    // Standard input rate per million
+    const normalRate = Number(item.rates.input_cost_per_m || 0);
+    // Treat cache read and cache write tokens as standard input tokens
+    const cacheTokensCostWithoutCache = ((item.cache_read_tokens + item.cache_write_tokens) * normalRate) / 1_000_000;
+    
+    const itemCostWithoutCache = 
+      item.costs.input_cost + 
+      cacheTokensCostWithoutCache + 
+      item.costs.output_cost + 
+      item.costs.reasoning_cost;
+      
+    costWithoutCache += itemCostWithoutCache;
   }
+
+  const totalCost = inputCost + outputCost + cacheCost + reasoningCost;
+  const savingsPct = costWithoutCache > 0 ? ((costWithoutCache - totalCost) / costWithoutCache) * 100 : 0;
 
   return {
     input,
@@ -55,7 +72,9 @@ const totals = computed(() => {
     outputCost,
     cacheCost,
     reasoningCost,
-    totalCost: inputCost + outputCost + cacheCost + reasoningCost
+    totalCost,
+    costWithoutCache,
+    savingsPct: Math.max(0, savingsPct)
   };
 });
 </script>
@@ -113,13 +132,25 @@ const totals = computed(() => {
         <span class="kpi-cost">Accumulated cost for active models</span>
       </div>
     </div>
+
+    <!-- Cache Savings Card -->
+    <div class="kpi-card card-savings">
+      <div class="kpi-icon">⚡</div>
+      <div class="kpi-data">
+        <span class="kpi-title">Cache Savings</span>
+        <span class="kpi-value savings-highlight">{{ totals.savingsPct.toFixed(1) }}%</span>
+        <span class="kpi-cost" :title="'No Cache: ' + formatCurrency(totals.costWithoutCache)">
+          No Cache: {{ formatCurrency(totals.costWithoutCache) }}
+        </span>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .kpis-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 16px;
   width: 100%;
 }
@@ -134,6 +165,7 @@ const totals = computed(() => {
   gap: 12px;
   box-shadow: var(--shadow);
   transition: transform 0.2s, border-color 0.2s;
+  min-width: 0;
 }
 
 .kpi-card:hover {
@@ -145,6 +177,7 @@ const totals = computed(() => {
 .card-cache:hover { border-color: var(--warning); }
 .card-reasoning:hover { border-color: var(--orange); }
 .card-total-cost:hover { border-color: var(--accent); }
+.card-savings:hover { border-color: var(--success); }
 
 .kpi-icon {
   font-size: 24px;
@@ -155,6 +188,7 @@ const totals = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .kpi-title {
@@ -181,10 +215,17 @@ const totals = computed(() => {
 .kpi-cost {
   font-size: 12px;
   color: var(--text-muted);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .cost-highlight {
   color: var(--accent-light);
+}
+
+.savings-highlight {
+  color: var(--success);
 }
 
 @media (max-width: 1200px) {

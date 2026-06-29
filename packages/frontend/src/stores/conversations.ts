@@ -100,6 +100,22 @@ export const useConversationsStore = defineStore('conversations', () => {
     }
   };
 
+  const updateTitle = async (id: string, title: string) => {
+    try {
+      const response = await api.updateConversationTitle(id, title);
+      if (selectedDetail.value && selectedDetail.value.id === id) {
+        selectedDetail.value.title = response.title;
+      }
+      const conv = conversations.value.find(c => c.id === id);
+      if (conv) {
+        conv.title = response.title;
+      }
+    } catch (err: any) {
+      error.value = err.message || 'Failed to update conversation title';
+      throw err;
+    }
+  };
+
   return {
     conversations,
     nextCursor,
@@ -116,5 +132,6 @@ export const useConversationsStore = defineStore('conversations', () => {
     fetchNextPage,
     selectConversation,
     toggleModelFilter,
+    updateTitle,
   };
 });

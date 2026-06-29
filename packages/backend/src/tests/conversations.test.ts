@@ -132,5 +132,55 @@ describe('Conversations and Spans Query API', () => {
     // Test GET /api/conversations/:id/spans (Non-existent conversation)
     const missingSpansRes = await fetch(`${baseUrl}/api/conversations/conv-missing/spans`);
     expect(missingSpansRes.status).toBe(404);
+
+    // Test PATCH /api/conversations/:id - Valid update
+    const patchRes1 = await fetch(`${baseUrl}/api/conversations/conv-1`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '  Updated Title 1  ' }),
+    });
+    expect(patchRes1.status).toBe(200);
+    const patchData1 = await patchRes1.json() as any;
+    expect(patchData1.id).toBe('conv-1');
+    expect(patchData1.title).toBe('Updated Title 1'); // trimmed
+
+    // Check that title has actually changed on detail fetch
+    const getResAfterPatch = await fetch(`${baseUrl}/api/conversations/conv-1`);
+    expect(getResAfterPatch.status).toBe(200);
+    const getDataAfterPatch = await getResAfterPatch.json() as any;
+    expect(getDataAfterPatch.title).toBe('Updated Title 1');
+
+    // Test PATCH /api/conversations/:id - Title too long
+    const longTitle = 'a'.repeat(201);
+    const patchResLong = await fetch(`${baseUrl}/api/conversations/conv-1`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: longTitle }),
+    });
+    expect(patchResLong.status).toBe(400);
+
+    // Test PATCH /api/conversations/:id - Empty title
+    const patchResEmpty = await fetch(`${baseUrl}/api/conversations/conv-1`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '   ' }),
+    });
+    expect(patchResEmpty.status).toBe(400);
+
+    // Test PATCH /api/conversations/:id - Non-string title
+    const patchResNonStr = await fetch(`${baseUrl}/api/conversations/conv-1`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 12345 }),
+    });
+    expect(patchResNonStr.status).toBe(400);
+
+    // Test PATCH /api/conversations/:id - Non-existent conversation
+    const patchResMissing = await fetch(`${baseUrl}/api/conversations/conv-missing`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Should Fail' }),
+    });
+    expect(patchResMissing.status).toBe(404);
   });
 });
