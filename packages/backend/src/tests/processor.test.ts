@@ -49,7 +49,7 @@ describe('Telemetry Processing Engine', () => {
                   name: 'chat gpt-4o-discovered',
                   startTimeUnixNano: '1719619200000000000', // unix epoch 1719619200
                   attributes: [
-                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-discovered-123' } },
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-discovered-123' } },
                     { key: 'gen_ai.response.model', value: { stringValue: 'gpt-4o-discovered' } },
                     { key: 'gen_ai.usage.input_tokens', value: { intValue: 1200 } },
                     { key: 'gen_ai.usage.output_tokens', value: { intValue: 500 } },
@@ -63,7 +63,7 @@ describe('Telemetry Processing Engine', () => {
                   spanId: 'ignore-span-2',
                   name: 'invoke_agent', // Should be ignored because name is not 'chat'
                   attributes: [
-                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-discovered-123' } }
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-discovered-123' } }
                   ]
                 }
               ]
@@ -129,7 +129,7 @@ describe('Telemetry Processing Engine', () => {
                   name: 'chat gpt-4o-discovered',
                   startTimeUnixNano: '1719619205000000000', // 5 seconds later
                   attributes: [
-                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-discovered-123' } },
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-discovered-123' } },
                     { key: 'gen_ai.response.model', value: { stringValue: 'gpt-4o-discovered' } },
                     { key: 'gen_ai.usage.input_tokens', value: { intValue: 2000 } }, // updated
                     { key: 'gen_ai.usage.output_tokens', value: { intValue: 800 } }  // updated
@@ -169,7 +169,7 @@ describe('Telemetry Processing Engine', () => {
     expect(span.created_at).toBe(1719619205);
   });
 
-  it('updates conversation title when a title-generation trace span is processed', async () => {
+  it('skips trace spans that do not have copilot_chat.chat_session_id or copilot_chat.session_id', async () => {
     const payload = {
       resourceSpans: [
         {
@@ -177,14 +177,12 @@ describe('Telemetry Processing Engine', () => {
             {
               spans: [
                 {
-                  spanId: 'chat-title-span',
+                  spanId: 'chat-skipped-span',
                   name: 'chat gpt-4o-discovered',
                   startTimeUnixNano: '1719619210000000000',
                   attributes: [
-                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-discovered-123' } },
                     { key: 'gen_ai.response.model', value: { stringValue: 'gpt-4o-discovered' } },
-                    { key: 'copilot_chat.user_request', value: { stringValue: 'Please write a brief title for the following request:\n\nHello' } },
-                    { key: 'gen_ai.output.messages', value: { stringValue: '[{"role":"assistant","parts":[{"type":"text","content":"General greeting"}]}]' } }
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Please write a brief title for the following request:\n\nHello' } }
                   ]
                 }
               ]
@@ -205,8 +203,111 @@ describe('Telemetry Processing Engine', () => {
     // Wait for background parsing
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // Verify conversation title was updated to the generated title
-    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-discovered-123') as any;
-    expect(conversation.title).toBe('General greeting');
+    // Verify no atomic span or conversation was created
+    const span = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('chat-skipped-span');
+    expect(span).toBeUndefined();
+  });
+
+  it('correctly processes spans using copilot_chat.session_id as a fallback grouping key', async () => {
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  spanId: 'chat-span-fallback',
+                  name: 'chat gpt-4o-discovered',
+                  startTimeUnixNano: '1719619220000000000',
+                  attributes: [
+                    { key: 'copilot_chat.session_id', value: { stringValue: 'conv-fallback-456' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'gpt-4o-discovered' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 500 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 200 } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Using fallback session ID' } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-fallback-456') as any;
+    expect(conversation).toBeDefined();
+    expect(conversation.title).toBe('Using fallback session ID');
+
+    const span = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('chat-span-fallback') as any;
+    expect(span).toBeDefined();
+    expect(span.conversation_id).toBe('conv-fallback-456');
+  });
+
+  it('groups chat spans without direct session ID attributes if they share a traceId with an invoke_agent span containing the session ID', async () => {
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 'trace-shared-12345',
+                  spanId: 'chat-byok-span',
+                  name: 'chat models/gemini-2.5-flash',
+                  startTimeUnixNano: '1719619230000000000',
+                  attributes: [
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gemini-2.5-flash' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 300 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 150 } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'BYOK test prompt' } }
+                  ]
+                },
+                {
+                  traceId: 'trace-shared-12345',
+                  spanId: 'invoke-parent-span',
+                  name: 'invoke_agent GitHub Copilot Chat',
+                  startTimeUnixNano: '1719619230000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-byok-session-789' } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-byok-session-789') as any;
+    expect(conversation).toBeDefined();
+    expect(conversation.title).toBe('BYOK test prompt');
+
+    const span = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('chat-byok-span') as any;
+    expect(span).toBeDefined();
+    expect(span.conversation_id).toBe('conv-byok-session-789');
+    expect(span.model_name).toBe('models/gemini-2.5-flash');
   });
 });
+

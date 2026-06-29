@@ -32,28 +32,6 @@ function findAttribute(attributes: any[], key: string): any {
   return attr ? getAttributeValue(attr) : null;
 }
 
-function extractTitleFromOutput(outputStr: string): string | null {
-  try {
-    const parsed = JSON.parse(outputStr);
-    if (Array.isArray(parsed)) {
-      for (const msg of parsed) {
-        if (msg.role === 'assistant' && msg.parts && Array.isArray(msg.parts)) {
-          for (const part of msg.parts) {
-            if (part.type === 'text' && typeof part.content === 'string') {
-              return part.content.trim().replace(/^["']|["']$/g, '');
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    try {
-      const match = outputStr.match(/"content"\s*:\s*"([^"]+)"/);
-      if (match) return match[1].replace(/\\n/g, '\n').trim();
-    } catch (err) {}
-  }
-  return null;
-}
 
 function extractPromptFromRequest(userReqStr: string): string | null {
   if (!userReqStr) return null;
@@ -95,6 +73,32 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
     if (!resourceSpans || !Array.isArray(resourceSpans)) return;
 
     db.transaction(() => {
+      // Pre-scan all spans to build a map of traceId -> chatSessionId
+      const traceSessionMap = new Map<string, string>();
+      for (const resSpan of resourceSpans) {
+        const scopeSpans = resSpan.scopeSpans;
+        if (!scopeSpans || !Array.isArray(scopeSpans)) continue;
+        for (const scopeSpan of scopeSpans) {
+          const spans = scopeSpan.spans;
+          if (!spans || !Array.isArray(spans)) continue;
+          for (const span of spans) {
+            const traceId = span.traceId;
+            if (!traceId) continue;
+            
+            let sessionId = findAttribute(span.attributes, 'copilot_chat.chat_session_id') ||
+                            findAttribute(span.attributes, 'copilot_chat.session_id');
+                            
+            if (!sessionId && (span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent '))) {
+              sessionId = findAttribute(span.attributes, 'gen_ai.conversation.id');
+            }
+            
+            if (sessionId) {
+              traceSessionMap.set(traceId, sessionId);
+            }
+          }
+        }
+      }
+
       for (const resSpan of resourceSpans) {
         const scopeSpans = resSpan.scopeSpans;
         if (!scopeSpans || !Array.isArray(scopeSpans)) continue;
@@ -107,8 +111,17 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             // Target only leaf nodes representing LLM chat interactions (e.g. "chat" or "chat <model_name>")
             if (span.name !== 'chat' && !span.name.startsWith('chat ')) continue;
 
+            let conversationId = findAttribute(span.attributes, 'copilot_chat.chat_session_id') ||
+                                 findAttribute(span.attributes, 'copilot_chat.session_id');
+            
+            if (!conversationId && span.traceId) {
+              conversationId = traceSessionMap.get(span.traceId);
+            }
+            
+            // Skip spans that do not belong to a real user conversation/session (e.g. system/agent utility calls)
+            if (!conversationId) continue;
+
             const spanId = span.spanId || span.span_id || `gen-${Math.random().toString(36).substring(2, 11)}`;
-            const conversationId = findAttribute(span.attributes, 'gen_ai.conversation.id') || 'default-conversation';
             
             const modelName = findAttribute(span.attributes, 'gen_ai.response.model') || 
                               findAttribute(span.attributes, 'gen_ai.request.model') || 
@@ -120,21 +133,10 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const cacheWriteTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_write.input_tokens') ?? 0);
             const reasoningTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.reasoning_tokens') ?? 0);
 
-            // Extract user request & output details
+            // Extract user request & fallback title
             const userRequest = findAttribute(span.attributes, 'copilot_chat.user_request');
-            const outputMessages = findAttribute(span.attributes, 'gen_ai.output.messages');
-
-            let isTitleGeneration = false;
-            let extractedTitle: string | null = null;
-            if (typeof userRequest === 'string' && userRequest.includes('Please write a brief title')) {
-              isTitleGeneration = true;
-              if (outputMessages) {
-                extractedTitle = extractTitleFromOutput(outputMessages);
-              }
-            }
-
             let fallbackTitle: string | null = null;
-            if (!isTitleGeneration && typeof userRequest === 'string') {
+            if (typeof userRequest === 'string') {
               fallbackTitle = extractPromptFromRequest(userRequest);
             }
 
@@ -164,10 +166,9 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             // 2. Upsert Conversation
             const existingConv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
             if (!existingConv) {
-              const initialTitle = extractedTitle || fallbackTitle || null;
               db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run(
                 conversationId,
-                initialTitle,
+                fallbackTitle || null,
                 spanTimeSec,
                 spanTimeSec
               );
@@ -176,10 +177,7 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
               const newLast = Math.max(existingConv.last_seen_at, spanTimeSec);
               
               let titleToSave = existingConv.title;
-              if (extractedTitle) {
-                // Generated title takes absolute precedence
-                titleToSave = extractedTitle;
-              } else if (!titleToSave && fallbackTitle) {
+              if (!titleToSave && fallbackTitle) {
                 titleToSave = fallbackTitle;
               }
 
