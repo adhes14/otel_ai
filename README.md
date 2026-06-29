@@ -10,7 +10,7 @@ A 100% local, privacy-focused tool designed to intercept, persist, and analyze t
 *   **Backend:** Node.js, TypeScript, Express, and running via `tsx` (no build step in dev).
 *   **Database:** SQLite (`better-sqlite3` driver running in WAL mode).
 *   **Logging:** `pino` + `pino-http` (structured JSON logging, prettified in dev).
-*   **Frontend:** Vue.js 3 + TypeScript + Vite.
+*   **Frontend:** Vue.js 3, Vite, Vue Router 4 (routing), Pinia (state management), Chart.js & vue-chartjs (visualizations), and a custom dark-first design system.
 
 ---
 
@@ -86,6 +86,25 @@ To start the Vue 3 dashboard development server:
 ```bash
 pnpm dev:frontend
 ```
+The dashboard runs at `http://localhost:5173` with a configured Vite dev server proxy to forward `/api` and `/v1` requests to port `4318`.
+
+To build the frontend for production:
+```bash
+pnpm build:frontend
+```
+
+---
+
+## 🖥️ UI Dashboard Features
+
+The application includes a fully responsive split master-detail dashboard featuring:
+*   **Chronological Session History:** Scrollable panel showing conversation title, date, ID, and active models. Real-time client-side search/filtering is supported, along with infinite scroll paging.
+*   **Model Filter Checkboxes:** Filter out specific model spans with compute/token updates on-the-fly.
+*   **KPI Cards:** Shows total counts and dollar cost breakdowns for Input, Output, Cache (Read/Write), and Reasoning tokens.
+*   **Interactive Visualizations:**
+    *   **Cost Distribution (Donut Chart):** Shows the cost distribution per model in dollars.
+    *   **Token Consumption Over Time (Bar Chart):** Stacks input, output, cache read/write, and reasoning tokens for sequential spans (capped at 50 spans for clarity).
+*   **Model Cost Manager:** Full settings page (`/settings/model-costs`) supporting rate creation, deletion, and inline edits. A status warning `⚠️ Cost not configured` badge alerts users to $0.00 rate models discovered via OTel telemetry.
 
 ---
 
