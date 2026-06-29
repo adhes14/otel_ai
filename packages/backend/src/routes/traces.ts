@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/database.js';
 import logger from '../utils/logger.js';
+import { processTelemetry } from '../services/telemetryProcessor.js';
 
 const router = Router();
 
@@ -65,16 +66,22 @@ router.post('/v1/traces', (req: Request, res: Response) => {
     `);
 
     const result = stmt.run(conversationId, payloadStr);
+    const rawId = Number(result.lastInsertRowid);
 
     logger.info({
-      traceId: result.lastInsertRowid,
+      traceId: rawId,
       conversationId,
       payloadSize: payloadStr.length
     }, 'Telemetry trace persisted successfully');
 
+    // Trigger background processing asynchronously
+    setImmediate(() => {
+      processTelemetry(rawId, payload);
+    });
+
     return res.status(200).json({
       status: 'ok',
-      id: Number(result.lastInsertRowid)
+      id: rawId
     });
   } catch (err) {
     logger.error({ err }, 'Failed to persist telemetry trace');

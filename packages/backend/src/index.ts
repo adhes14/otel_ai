@@ -3,6 +3,8 @@ import cors from 'cors';
 import pinoHttp from 'pino-http';
 import { runMigrations } from './db/migrations.js';
 import tracesRouter from './routes/traces.js';
+import modelCostsRouter from './routes/modelCosts.js';
+import conversationsRouter from './routes/conversations.js';
 import logger from './utils/logger.js';
 
 // Run migrations on startup
@@ -23,13 +25,16 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // HTTP Request Logger
-const isTest = process.env.NODE_ENV === 'test' || typeof globalThis.vitest !== 'undefined';
+const isTest = process.env.NODE_ENV === 'test' || typeof (globalThis as any).vitest !== 'undefined';
 if (!isTest) {
+  // @ts-expect-error - pinoHttp default import typing resolution mismatch
   app.use(pinoHttp({ logger }));
 }
 
 // Routes
 app.use(tracesRouter);
+app.use(modelCostsRouter);
+app.use(conversationsRouter);
 
 // GET /healthz
 app.get('/healthz', (req, res) => {

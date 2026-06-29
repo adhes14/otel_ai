@@ -100,7 +100,19 @@ pnpm test
 
 ---
 
-## 📡 Webhook Endpoints
+## 📡 API Endpoints
 
-*   **`POST /v1/traces`**: The primary OTel ingestion endpoint. Receives payloads with `Content-Type: application/json` or `application/x-protobuf` and records them into the `raw_telemetry` table.
+### 🔌 Ingestion & Utility Endpoints
+*   **`POST /v1/traces`**: The primary OTel ingestion endpoint. Receives payloads with `Content-Type: application/json` or `application/x-protobuf`, records them into `raw_telemetry` table, and triggers async parsing in the background.
 *   **`GET /healthz`**: Simple healthcheck returning status code `200 OK` and system uptime.
+
+### 🤖 Model Costs (CRUD)
+*   **`GET /api/model-costs`**: Lists all configured model cost rates per million tokens.
+*   **`POST /api/model-costs`**: Adds a new model cost entry.
+*   **`PUT /api/model-costs/:modelName`**: Updates an existing model's cost rates.
+*   **`DELETE /api/model-costs/:modelName`**: Deletes a model cost entry.
+
+### 💬 Conversations & Spans Querying
+*   **`GET /api/conversations`**: Returns a list of conversations sorted from newest to oldest, with cursor-based pagination and a list of distinct models used.
+*   **`GET /api/conversations/:id`**: Returns conversation metadata along with token counts and calculated financial costs aggregated per model.
+*   **`GET /api/conversations/:id/spans`**: Lists all flat atomic spans (where `name == 'chat'`) belonging to the conversation.

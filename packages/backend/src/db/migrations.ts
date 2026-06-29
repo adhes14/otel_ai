@@ -4,7 +4,27 @@ import logger from '../utils/logger.js';
 export function runMigrations() {
   logger.info('Running database migrations...');
 
+  // Check if we need to drop old tables to migrate schema
+  let needsMigration = false;
+  try {
+    const info = db.pragma("table_info(atomic_spans)") as any[];
+    if (info && info.length > 0) {
+      const hasCacheWrite = info.some(col => col.name === 'cache_write_tokens');
+      if (!hasCacheWrite) {
+        logger.info('Detected old database schema (missing cache_write_tokens). Dropping atomic_spans and conversations for recreation.');
+        needsMigration = true;
+      }
+    }
+  } catch (err) {
+    // Table doesn't exist yet, which is fine
+  }
+
   db.transaction(() => {
+    if (needsMigration) {
+      db.prepare('DROP TABLE IF EXISTS atomic_spans').run();
+      db.prepare('DROP TABLE IF EXISTS conversations').run();
+    }
+
     // 1. Raw Telemetry Table
     db.prepare(`
       CREATE TABLE IF NOT EXISTS raw_telemetry (
@@ -30,8 +50,8 @@ export function runMigrations() {
     db.prepare(`
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_seen_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
     `).run();
 
@@ -44,6 +64,7 @@ export function runMigrations() {
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
         reasoning_tokens INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,

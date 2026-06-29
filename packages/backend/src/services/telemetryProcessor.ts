@@ -1,0 +1,151 @@
+import { db } from '../db/database.js';
+import logger from '../utils/logger.js';
+
+interface OTelAttribute {
+  key: string;
+  value: {
+    stringValue?: string;
+    intValue?: string | number;
+    doubleValue?: number;
+    boolValue?: boolean;
+    [key: string]: any;
+  } | string | number | boolean;
+}
+
+function getAttributeValue(attr: any): any {
+  if (!attr || attr.value === undefined || attr.value === null) return null;
+  const val = attr.value;
+  if (typeof val !== 'object') {
+    return val;
+  }
+  if ('stringValue' in val) return val.stringValue;
+  if ('intValue' in val) return Number(val.intValue);
+  if ('doubleValue' in val) return Number(val.doubleValue);
+  if ('boolValue' in val) return val.boolValue;
+  if ('value' in val) return val.value;
+  return null;
+}
+
+function findAttribute(attributes: any[], key: string): any {
+  if (!attributes || !Array.isArray(attributes)) return null;
+  const attr = attributes.find(a => a.key === key);
+  return attr ? getAttributeValue(attr) : null;
+}
+
+export function processTelemetry(rawId: number, rawPayload: string | object) {
+  try {
+    let payload: any;
+    if (typeof rawPayload === 'string') {
+      payload = JSON.parse(rawPayload);
+    } else {
+      payload = rawPayload;
+    }
+
+    if (!payload || typeof payload !== 'object') return;
+
+    const resourceSpans = payload.resourceSpans;
+    if (!resourceSpans || !Array.isArray(resourceSpans)) return;
+
+    db.transaction(() => {
+      for (const resSpan of resourceSpans) {
+        const scopeSpans = resSpan.scopeSpans;
+        if (!scopeSpans || !Array.isArray(scopeSpans)) continue;
+
+        for (const scopeSpan of scopeSpans) {
+          const spans = scopeSpan.spans;
+          if (!spans || !Array.isArray(spans)) continue;
+
+          for (const span of spans) {
+            // Target only leaf nodes representing LLM chat interactions (e.g. "chat" or "chat <model_name>")
+            if (span.name !== 'chat' && !span.name.startsWith('chat ')) continue;
+
+            const spanId = span.spanId || span.span_id || `gen-${Math.random().toString(36).substring(2, 11)}`;
+            const conversationId = findAttribute(span.attributes, 'gen_ai.conversation.id') || 'default-conversation';
+            
+            const modelName = findAttribute(span.attributes, 'gen_ai.response.model') || 
+                              findAttribute(span.attributes, 'gen_ai.request.model') || 
+                              'unknown-model';
+
+            const inputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.input_tokens') ?? 0);
+            const outputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.output_tokens') ?? 0);
+            const cacheReadTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens') ?? 0);
+            const cacheWriteTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_write.input_tokens') ?? 0);
+            const reasoningTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.reasoning_tokens') ?? 0);
+
+            // Extract time
+            const now = Math.floor(Date.now() / 1000);
+            let spanTimeSec = now;
+            const timeNano = span.startTimeUnixNano || span.start_time_unix_nano || span.timeUnixNano || span.time_unix_nano;
+            if (timeNano) {
+              try {
+                spanTimeSec = Math.floor(Number(BigInt(timeNano) / 1000000000n));
+              } catch (e) {
+                // If BigInt conversion fails, check if it's already a number or a simple string representing seconds
+                const num = Number(timeNano);
+                if (!isNaN(num)) {
+                  spanTimeSec = num > 1e11 ? Math.floor(num / 1000) : num;
+                }
+              }
+            }
+
+            // 1. Model Auto-Discovery: Hot insertion of model costs at $0.00
+            db.prepare(`
+              INSERT OR IGNORE INTO model_costs (
+                model_name, input_cost_per_m, output_cost_per_m, cache_cost_per_m, reasoning_cost_per_m
+              ) VALUES (?, 0, 0, 0, 0)
+            `).run(modelName);
+
+            // 2. Upsert Conversation
+            const existingConv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
+            if (!existingConv) {
+              db.prepare('INSERT INTO conversations (id, first_seen_at, last_seen_at) VALUES (?, ?, ?)').run(
+                conversationId,
+                spanTimeSec,
+                spanTimeSec
+              );
+            } else {
+              const newFirst = Math.min(existingConv.first_seen_at, spanTimeSec);
+              const newLast = Math.max(existingConv.last_seen_at, spanTimeSec);
+              db.prepare('UPDATE conversations SET first_seen_at = ?, last_seen_at = ? WHERE id = ?').run(
+                newFirst,
+                newLast,
+                conversationId
+              );
+            }
+
+            // 3. Upsert Atomic Span
+            db.prepare(`
+              INSERT INTO atomic_spans (
+                id, conversation_id, model_name, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, reasoning_tokens, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                conversation_id = excluded.conversation_id,
+                model_name = excluded.model_name,
+                input_tokens = excluded.input_tokens,
+                output_tokens = excluded.output_tokens,
+                cache_read_tokens = excluded.cache_read_tokens,
+                cache_write_tokens = excluded.cache_write_tokens,
+                reasoning_tokens = excluded.reasoning_tokens,
+                created_at = excluded.created_at
+            `).run(
+              spanId,
+              conversationId,
+              modelName,
+              inputTokens,
+              outputTokens,
+              cacheReadTokens,
+              cacheWriteTokens,
+              reasoningTokens,
+              spanTimeSec
+            );
+          }
+        }
+      }
+    })();
+
+    logger.debug({ rawId }, 'Finished parsing and populating DB tables asynchronously');
+  } catch (err) {
+    logger.error({ err, rawId }, 'Failed to process telemetry in background');
+  }
+}
