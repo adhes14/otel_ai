@@ -32,6 +32,54 @@ function findAttribute(attributes: any[], key: string): any {
   return attr ? getAttributeValue(attr) : null;
 }
 
+function extractTitleFromOutput(outputStr: string): string | null {
+  try {
+    const parsed = JSON.parse(outputStr);
+    if (Array.isArray(parsed)) {
+      for (const msg of parsed) {
+        if (msg.role === 'assistant' && msg.parts && Array.isArray(msg.parts)) {
+          for (const part of msg.parts) {
+            if (part.type === 'text' && typeof part.content === 'string') {
+              return part.content.trim().replace(/^["']|["']$/g, '');
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    try {
+      const match = outputStr.match(/"content"\s*:\s*"([^"]+)"/);
+      if (match) return match[1].replace(/\\n/g, '\n').trim();
+    } catch (err) {}
+  }
+  return null;
+}
+
+function extractPromptFromRequest(userReqStr: string): string | null {
+  if (!userReqStr) return null;
+  let text = userReqStr.trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (item.type === 'input_text' && typeof item.text === 'string') {
+          text = item.text;
+          break;
+        }
+      }
+    }
+  } catch (e) {}
+
+  const match = text.match(/<userRequest>([\s\S]*?)<\/userRequest>/i);
+  let prompt = match ? match[1].trim() : text.trim();
+  
+  prompt = prompt.replace(/\s+/g, ' ');
+  if (prompt.length > 60) {
+    prompt = prompt.substring(0, 57) + '...';
+  }
+  return prompt || null;
+}
+
 export function processTelemetry(rawId: number, rawPayload: string | object) {
   try {
     let payload: any;
@@ -72,6 +120,24 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const cacheWriteTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_write.input_tokens') ?? 0);
             const reasoningTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.reasoning_tokens') ?? 0);
 
+            // Extract user request & output details
+            const userRequest = findAttribute(span.attributes, 'copilot_chat.user_request');
+            const outputMessages = findAttribute(span.attributes, 'gen_ai.output.messages');
+
+            let isTitleGeneration = false;
+            let extractedTitle: string | null = null;
+            if (typeof userRequest === 'string' && userRequest.includes('Please write a brief title')) {
+              isTitleGeneration = true;
+              if (outputMessages) {
+                extractedTitle = extractTitleFromOutput(outputMessages);
+              }
+            }
+
+            let fallbackTitle: string | null = null;
+            if (!isTitleGeneration && typeof userRequest === 'string') {
+              fallbackTitle = extractPromptFromRequest(userRequest);
+            }
+
             // Extract time
             const now = Math.floor(Date.now() / 1000);
             let spanTimeSec = now;
@@ -98,15 +164,27 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             // 2. Upsert Conversation
             const existingConv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
             if (!existingConv) {
-              db.prepare('INSERT INTO conversations (id, first_seen_at, last_seen_at) VALUES (?, ?, ?)').run(
+              const initialTitle = extractedTitle || fallbackTitle || null;
+              db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run(
                 conversationId,
+                initialTitle,
                 spanTimeSec,
                 spanTimeSec
               );
             } else {
               const newFirst = Math.min(existingConv.first_seen_at, spanTimeSec);
               const newLast = Math.max(existingConv.last_seen_at, spanTimeSec);
-              db.prepare('UPDATE conversations SET first_seen_at = ?, last_seen_at = ? WHERE id = ?').run(
+              
+              let titleToSave = existingConv.title;
+              if (extractedTitle) {
+                // Generated title takes absolute precedence
+                titleToSave = extractedTitle;
+              } else if (!titleToSave && fallbackTitle) {
+                titleToSave = fallbackTitle;
+              }
+
+              db.prepare('UPDATE conversations SET title = ?, first_seen_at = ?, last_seen_at = ? WHERE id = ?').run(
+                titleToSave,
                 newFirst,
                 newLast,
                 conversationId

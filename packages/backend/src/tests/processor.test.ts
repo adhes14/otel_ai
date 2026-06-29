@@ -55,7 +55,8 @@ describe('Telemetry Processing Engine', () => {
                     { key: 'gen_ai.usage.output_tokens', value: { intValue: 500 } },
                     { key: 'gen_ai.usage.cache_read.input_tokens', value: { intValue: 300 } },
                     { key: 'gen_ai.usage.cache_write.input_tokens', value: { intValue: 150 } },
-                    { key: 'gen_ai.usage.reasoning_tokens', value: { intValue: 100 } }
+                    { key: 'gen_ai.usage.reasoning_tokens', value: { intValue: 100 } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: '[{"type":"input_text","text":"<userRequest>Hello my friendly assistant!</userRequest>"}]' } }
                   ]
                 },
                 {
@@ -88,6 +89,7 @@ describe('Telemetry Processing Engine', () => {
     expect(conversation).toBeDefined();
     expect(conversation.first_seen_at).toBe(1719619200);
     expect(conversation.last_seen_at).toBe(1719619200);
+    expect(conversation.title).toBe('Hello my friendly assistant!');
 
     // Verify model cost entry was auto-discovered with $0 rates
     const modelCost = db.prepare('SELECT * FROM model_costs WHERE model_name = ?').get('gpt-4o-discovered') as any;
@@ -159,11 +161,52 @@ describe('Telemetry Processing Engine', () => {
     // Verify atomic span row was updated (not duplicated)
     const spans = db.prepare('SELECT * FROM atomic_spans WHERE conversation_id = ?').all('conv-discovered-123');
     expect(spans.length).toBe(1);
-
+ 
     const span = spans[0] as any;
     expect(span.id).toBe('chat-span-1');
     expect(span.input_tokens).toBe(2000);
     expect(span.output_tokens).toBe(800);
     expect(span.created_at).toBe(1719619205);
+  });
+
+  it('updates conversation title when a title-generation trace span is processed', async () => {
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  spanId: 'chat-title-span',
+                  name: 'chat gpt-4o-discovered',
+                  startTimeUnixNano: '1719619210000000000',
+                  attributes: [
+                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-discovered-123' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'gpt-4o-discovered' } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Please write a brief title for the following request:\n\nHello' } },
+                    { key: 'gen_ai.output.messages', value: { stringValue: '[{"role":"assistant","parts":[{"type":"text","content":"General greeting"}]}]' } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify conversation title was updated to the generated title
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-discovered-123') as any;
+    expect(conversation.title).toBe('General greeting');
   });
 });

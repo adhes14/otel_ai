@@ -34,7 +34,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
 
     if (decoded) {
       rows = db.prepare(`
-        SELECT c.id, c.first_seen_at, c.last_seen_at, GROUP_CONCAT(DISTINCT s.model_name) as models
+        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, GROUP_CONCAT(DISTINCT s.model_name) as models
         FROM conversations c
         LEFT JOIN atomic_spans s ON c.id = s.conversation_id
         WHERE c.last_seen_at < ? OR (c.last_seen_at = ? AND c.id < ?)
@@ -44,7 +44,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
       `).all(decoded.lastSeenAt, decoded.lastSeenAt, decoded.id, limit);
     } else {
       rows = db.prepare(`
-        SELECT c.id, c.first_seen_at, c.last_seen_at, GROUP_CONCAT(DISTINCT s.model_name) as models
+        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, GROUP_CONCAT(DISTINCT s.model_name) as models
         FROM conversations c
         LEFT JOIN atomic_spans s ON c.id = s.conversation_id
         GROUP BY c.id
@@ -56,6 +56,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
     // Format list response
     const conversations = rows.map(row => ({
       id: row.id,
+      title: row.title,
       first_seen_at: row.first_seen_at,
       last_seen_at: row.last_seen_at,
       models: row.models ? row.models.split(',') : []
@@ -145,6 +146,7 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
 
     return res.status(200).json({
       id: conversation.id,
+      title: conversation.title,
       first_seen_at: conversation.first_seen_at,
       last_seen_at: conversation.last_seen_at,
       model_breakdown

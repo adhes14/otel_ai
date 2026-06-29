@@ -7,11 +7,20 @@ export function runMigrations() {
   // Check if we need to drop old tables to migrate schema
   let needsMigration = false;
   try {
-    const info = db.pragma("table_info(atomic_spans)") as any[];
-    if (info && info.length > 0) {
-      const hasCacheWrite = info.some(col => col.name === 'cache_write_tokens');
+    const infoSpans = db.pragma("table_info(atomic_spans)") as any[];
+    if (infoSpans && infoSpans.length > 0) {
+      const hasCacheWrite = infoSpans.some(col => col.name === 'cache_write_tokens');
       if (!hasCacheWrite) {
         logger.info('Detected old database schema (missing cache_write_tokens). Dropping atomic_spans and conversations for recreation.');
+        needsMigration = true;
+      }
+    }
+
+    const infoConv = db.pragma("table_info(conversations)") as any[];
+    if (infoConv && infoConv.length > 0) {
+      const hasTitle = infoConv.some(col => col.name === 'title');
+      if (!hasTitle) {
+        logger.info('Detected old database schema (missing title on conversations). Dropping atomic_spans and conversations for recreation.');
         needsMigration = true;
       }
     }
@@ -50,6 +59,7 @@ export function runMigrations() {
     db.prepare(`
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
+        title TEXT,
         first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
         last_seen_at INTEGER NOT NULL DEFAULT (unixepoch())
       );

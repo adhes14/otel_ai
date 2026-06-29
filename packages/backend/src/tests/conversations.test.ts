@@ -46,9 +46,9 @@ describe('Conversations and Spans Query API', () => {
     );
 
     // 2. Seed conversations (older first, newer last)
-    db.prepare('INSERT INTO conversations (id, first_seen_at, last_seen_at) VALUES (?, ?, ?)').run('conv-1', 1700000000, 1700001000);
-    db.prepare('INSERT INTO conversations (id, first_seen_at, last_seen_at) VALUES (?, ?, ?)').run('conv-2', 1700002000, 1700003000);
-    db.prepare('INSERT INTO conversations (id, first_seen_at, last_seen_at) VALUES (?, ?, ?)').run('conv-3', 1700004000, 1700005000);
+    db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run('conv-1', 'Title 1', 1700000000, 1700001000);
+    db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run('conv-2', 'Title 2', 1700002000, 1700003000);
+    db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run('conv-3', null, 1700004000, 1700005000);
 
     // 3. Seed atomic spans
     // conv-1 spans
@@ -70,8 +70,10 @@ describe('Conversations and Spans Query API', () => {
     const data1 = await listRes1.json() as any;
     expect(data1.conversations.length).toBe(2);
     expect(data1.conversations[0].id).toBe('conv-3');
+    expect(data1.conversations[0].title).toBeNull();
     expect(data1.conversations[0].models).toEqual([]); // no spans for conv-3
     expect(data1.conversations[1].id).toBe('conv-2');
+    expect(data1.conversations[1].title).toBe('Title 2');
     expect(data1.conversations[1].models).toEqual(['gpt-4o']);
     expect(data1.next_cursor).toBeTypeOf('string');
 
@@ -81,6 +83,7 @@ describe('Conversations and Spans Query API', () => {
     const data2 = await listRes2.json() as any;
     expect(data2.conversations.length).toBe(1);
     expect(data2.conversations[0].id).toBe('conv-1');
+    expect(data2.conversations[0].title).toBe('Title 1');
     expect(data2.conversations[0].models.sort()).toEqual(['claude-3-5', 'gpt-4o'].sort());
     expect(data2.next_cursor).toBeNull();
 
@@ -89,6 +92,7 @@ describe('Conversations and Spans Query API', () => {
     expect(detailRes.status).toBe(200);
     const detailData = await detailRes.json() as any;
     expect(detailData.id).toBe('conv-1');
+    expect(detailData.title).toBe('Title 1');
     expect(detailData.first_seen_at).toBe(1700000000);
     expect(detailData.last_seen_at).toBe(1700001000);
     expect(detailData.model_breakdown.length).toBe(2);
