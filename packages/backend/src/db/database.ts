@@ -40,7 +40,7 @@ function dotenvConfig(envFilePath: string) {
 }
 
 // Resolve DB path
-const rawDbPath = process.env.DB_PATH || '../../data/otel_ai.db';
+const rawDbPath = process.env.DB_PATH || '../../../../data/otel_ai.db';
 let dbPath: string;
 
 if (path.isAbsolute(rawDbPath)) {
