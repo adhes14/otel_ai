@@ -310,5 +310,81 @@ describe('Telemetry Processing Engine', () => {
     expect(span.conversation_id).toBe('conv-byok-session-789');
     expect(span.model_name).toBe('models/gemini-2.5-flash');
   });
+
+  it('correctly maps subagent session IDs to the parent conversation session and trims titles containing raw/escaped newlines', async () => {
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 'trace-subagent-123',
+                  spanId: 'chat-main-span',
+                  name: 'chat models/gemini-2.5-flash',
+                  startTimeUnixNano: '1719619240000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-main-parent' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gemini-2.5-flash' } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: '\\nstart\\n' } }
+                  ]
+                },
+                {
+                  traceId: 'trace-subagent-123',
+                  spanId: 'invoke-subagent-span',
+                  name: 'invoke_agent player',
+                  startTimeUnixNano: '1719619241000000000',
+                  attributes: [
+                    { key: 'copilot_chat.session_id', value: { stringValue: 'conv-main-parent' } },
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'toolu_subagent_xyz' } }
+                  ]
+                },
+                {
+                  traceId: 'trace-subagent-123',
+                  spanId: 'chat-subagent-span',
+                  name: 'chat Kimi-K2.6',
+                  startTimeUnixNano: '1719619242000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'toolu_subagent_xyz' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'Kimi-K2.6' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 100 } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify main conversation exists, is NOT toolu_subagent_xyz, and its title is trimmed
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-main-parent') as any;
+    expect(conversation).toBeDefined();
+    expect(conversation.title).toBe('start'); // should trim backslash-n and newlines
+
+    // Verify the subagent chat span is mapped to 'conv-main-parent', NOT 'toolu_subagent_xyz'
+    const mainSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('chat-main-span') as any;
+    expect(mainSpan).toBeDefined();
+    expect(mainSpan.conversation_id).toBe('conv-main-parent');
+
+    const subagentSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('chat-subagent-span') as any;
+    expect(subagentSpan).toBeDefined();
+    expect(subagentSpan.conversation_id).toBe('conv-main-parent');
+
+    // Verify that NO conversation is created for the toolu ID itself
+    const missingConv = db.prepare('SELECT * FROM conversations WHERE id = ?').get('toolu_subagent_xyz');
+    expect(missingConv).toBeUndefined();
+  });
 });
 

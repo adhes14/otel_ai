@@ -51,7 +51,7 @@ function extractPromptFromRequest(userReqStr: string): string | null {
   const match = text.match(/<userRequest>([\s\S]*?)<\/userRequest>/i);
   let prompt = match ? match[1].trim() : text.trim();
   
-  prompt = prompt.replace(/\s+/g, ' ');
+  prompt = prompt.replace(/\\n/g, ' ').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (prompt.length > 60) {
     prompt = prompt.substring(0, 57) + '...';
   }
@@ -73,8 +73,9 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
     if (!resourceSpans || !Array.isArray(resourceSpans)) return;
 
     db.transaction(() => {
-      // Pre-scan all spans to build a map of traceId -> chatSessionId
+      // Pre-scan all spans to build a map of traceId -> chatSessionId and subagentAliasMap
       const traceSessionMap = new Map<string, string>();
+      const subagentAliasMap = new Map<string, string>();
       for (const resSpan of resourceSpans) {
         const scopeSpans = resSpan.scopeSpans;
         if (!scopeSpans || !Array.isArray(scopeSpans)) continue;
@@ -85,15 +86,28 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const traceId = span.traceId;
             if (!traceId) continue;
             
-            let sessionId = findAttribute(span.attributes, 'copilot_chat.chat_session_id') ||
-                            findAttribute(span.attributes, 'copilot_chat.session_id');
-                            
-            if (!sessionId && (span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent '))) {
-              sessionId = findAttribute(span.attributes, 'gen_ai.conversation.id');
+            const chatSessionId = findAttribute(span.attributes, 'copilot_chat.chat_session_id');
+            const sessionId = findAttribute(span.attributes, 'copilot_chat.session_id');
+            const genAiConvId = findAttribute(span.attributes, 'gen_ai.conversation.id');
+
+            // If a span (like invoke_agent) defines parent session_id / gen_ai.conversation.id
+            // and a different chat_session_id for the subagent, track the mapping
+            const parentSessionId = sessionId || genAiConvId;
+            if (parentSessionId && chatSessionId && parentSessionId !== chatSessionId) {
+              subagentAliasMap.set(chatSessionId, parentSessionId);
             }
             
-            if (sessionId) {
-              traceSessionMap.set(traceId, sessionId);
+            let resolvedSessionId = chatSessionId || sessionId;
+            if (!resolvedSessionId && (span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent '))) {
+              resolvedSessionId = genAiConvId;
+            }
+            
+            if (resolvedSessionId) {
+              const existing = traceSessionMap.get(traceId);
+              // Prefer non-subagent session IDs if they exist
+              if (!existing || (existing.startsWith('toolu_') && !resolvedSessionId.startsWith('toolu_'))) {
+                traceSessionMap.set(traceId, resolvedSessionId);
+              }
             }
           }
         }
@@ -118,6 +132,11 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
               conversationId = traceSessionMap.get(span.traceId);
             }
             
+            // Resolve alias if it is a subagent session ID
+            if (conversationId && subagentAliasMap.has(conversationId)) {
+              conversationId = subagentAliasMap.get(conversationId);
+            }
+
             // Skip spans that do not belong to a real user conversation/session (e.g. system/agent utility calls)
             if (!conversationId) continue;
 
