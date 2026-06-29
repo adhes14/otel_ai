@@ -33,7 +33,7 @@ To shield the system against schema changes in VS Code and guarantee performance
    * Fields: `id` (Autoincrement), `conversation_id` (Nullable initially), `payload` (TEXT/JSON), `created_at` (Timestamp).
 
 2. **Processed Tables (Relaxed Relational Schema):**
-   * `conversations`: Stores the unique `gen_ai.conversation.id` identifier and aggregated session metadata.
+   * `conversations`: Stores the unique VS Code chat session identifier (`copilot_chat.chat_session_id`) and aggregated session metadata.
    * `atomic_spans`: Stores flat records of AI execution nodes that contain token metrics.
 
 ---
@@ -44,11 +44,10 @@ The analytical engine in the backend will avoid reconstructing complex hierarchi
 
 ### 🧠 Flat Extraction Algorithm (Safe Strategy)
 
-* **Root Filter:** The parser will traverse the flat structure of the spans, ignoring intermediate nodes such as `invoke_agent` or `execute_tool`. The engine will **only** target leaf nodes where the span identifier property is exactly `name == "chat"`.
-* **Attribute Mapping:** From each `"chat"` node, it will extract directly:
-  * `gen_ai.conversation.id` (Grouping key for the chat).
-  * `gen_ai.response.model` or `gen_ai.request.model` (Model identifier).
-  * Usage metrics: `input_tokens`, `output_tokens`, `cache_read_tokens` (or equivalent cache telemetry), and `reasoning_tokens`.
+* **Root Filter:** The parser will traverse the flat structure of the spans, ignoring intermediate nodes such as `execute_tool` or utility events. The engine will target leaf nodes representing LLM interactions where the span name starts with `"chat"`.
+* **Attribute Mapping & Grouping:** From each `"chat"` node, it will extract usage metrics and group them into conversations:
+  * **Grouping Key:** Uses `copilot_chat.chat_session_id` (or `copilot_chat.session_id`) to group turns of the same chat session. If a custom model span is missing this attribute, it falls back to resolving the session ID from other spans sharing the same `traceId` (such as the parent `invoke_agent` span). Spans without any session ID (such as internal system agent calls) are skipped.
+  * **Usage Metrics:** Extracts `input_tokens`, `output_tokens`, `cache_read_tokens` (or equivalent cache telemetry), and `reasoning_tokens`.
 
 ---
 
@@ -126,7 +125,7 @@ To ensure a structured and iterative development process, the system implementat
 * **Ingestion Hook Testing:** Confirm telemetry raw payloads are successfully captured and saved in SQLite.
 
 ### Phase 2: Processing Engine & Cost Management API (Weeks 2-3)
-* **Parser Logic:** Build flat processing parser to scan raw telemetry payload. Target leaf nodes matching `name == "chat"`.
+* **Parser Logic:** Build flat processing parser to scan raw telemetry payload. Target leaf nodes matching spans starting with `"chat"`.
 * **Relational Schema Ingestion:** Populate `conversations` and `atomic_spans` tables based on parsed spans.
 * **Auto-Discovery:** Program hot insertion of new models into `model_costs` table at `$0.00` rates.
 * **CRUD REST API:** Develop backend routes for `/api/model-costs` (GET, POST, PUT, DELETE) and endpoints to query aggregated conversation/span data.
