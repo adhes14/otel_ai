@@ -149,7 +149,7 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const inputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.input_tokens') ?? 0);
             const outputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.output_tokens') ?? 0);
             const cacheReadTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens') ?? 0);
-            const cacheWriteTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_write.input_tokens') ?? 0);
+            const cacheWriteTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_creation.input_tokens') ?? 0);
             const reasoningTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.reasoning_tokens') ?? 0);
 
             // Extract user request & fallback title

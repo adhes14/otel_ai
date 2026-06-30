@@ -54,7 +54,7 @@ describe('Telemetry Processing Engine', () => {
                     { key: 'gen_ai.usage.input_tokens', value: { intValue: 1200 } },
                     { key: 'gen_ai.usage.output_tokens', value: { intValue: 500 } },
                     { key: 'gen_ai.usage.cache_read.input_tokens', value: { intValue: 300 } },
-                    { key: 'gen_ai.usage.cache_write.input_tokens', value: { intValue: 150 } },
+                    { key: 'gen_ai.usage.cache_creation.input_tokens', value: { intValue: 150 } },
                     { key: 'gen_ai.usage.reasoning_tokens', value: { intValue: 100 } },
                     { key: 'copilot_chat.user_request', value: { stringValue: '[{"type":"input_text","text":"<userRequest>Hello my friendly assistant!</userRequest>"}]' } }
                   ]
