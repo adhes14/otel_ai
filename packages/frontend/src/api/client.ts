@@ -189,6 +189,12 @@ export const api = {
     return request<RawTelemetryDetail>(`/api/raw-telemetry/${encodeURIComponent(id)}`);
   },
 
+  deleteRawTelemetry: (id: number | string) => {
+    return request<{ status: string; id: number }>(`/api/raw-telemetry/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
   getConversationRawTelemetries: (conversationId: string) => {
     return request<ConversationRawTelemetry[]>(`/api/conversations/${encodeURIComponent(conversationId)}/raw-telemetry`);
   },

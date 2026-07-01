@@ -22,6 +22,30 @@ const copyFullPayload = async () => {
     console.error('Failed to copy payload:', err);
   }
 };
+
+const showDeleteModal = ref(false);
+const isDeleting = ref(false);
+
+const confirmDelete = () => {
+  showDeleteModal.value = true;
+};
+
+const cancelDelete = () => {
+  showDeleteModal.value = false;
+};
+
+const handleDelete = async () => {
+  if (!store.selectedTelemetry) return;
+  isDeleting.value = true;
+  try {
+    await store.deleteTelemetry(store.selectedTelemetry.id);
+    showDeleteModal.value = false;
+  } catch (err) {
+    console.error('Failed to delete telemetry:', err);
+  } finally {
+    isDeleting.value = false;
+  }
+};
 </script>
 
 <template>
@@ -52,6 +76,10 @@ const copyFullPayload = async () => {
           <span class="btn-icon">{{ isCopying ? '✓' : '📋' }}</span>
           <span>{{ isCopying ? 'Copied Full JSON' : 'Copy Full JSON' }}</span>
         </button>
+        <button @click="confirmDelete" class="export-btn delete-btn">
+          <span class="btn-icon">🗑️</span>
+          <span>Delete</span>
+        </button>
       </div>
     </div>
 
@@ -62,6 +90,20 @@ const copyFullPayload = async () => {
       </div>
       <div class="viewer-content">
         <JsonTreeNode :value="store.selectedTelemetry.payload" :depth="0" />
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteModal" class="modal-overlay no-print">
+      <div class="modal-card">
+        <h3>Delete Telemetry</h3>
+        <p>Are you sure you want to delete this raw telemetry record? This action is permanent and cannot be undone.</p>
+        <div class="modal-actions">
+          <button @click="cancelDelete" class="btn-cancel" :disabled="isDeleting">Cancel</button>
+          <button @click="handleDelete" class="btn-delete" :disabled="isDeleting">
+            {{ isDeleting ? 'Deleting...' : 'Delete' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -198,6 +240,7 @@ const copyFullPayload = async () => {
 .header-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .export-btn {
@@ -239,5 +282,90 @@ const copyFullPayload = async () => {
   0% { opacity: 0.5; }
   50% { opacity: 1; }
   100% { opacity: 0.5; }
+}
+
+/* Delete button styling */
+.export-btn.delete-btn {
+  background-color: var(--danger-bg);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--danger);
+}
+
+.export-btn.delete-btn:hover {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: var(--danger);
+  color: var(--text-bright);
+}
+
+/* Modal styling */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: var(--shadow);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal-card h3 {
+  margin-top: 0;
+  font-size: 18px;
+  color: var(--text-bright);
+  margin-bottom: 12px;
+}
+
+.modal-card p {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-cancel:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+}
+
+.btn-delete {
+  background-color: var(--danger);
+  border: 1px solid var(--danger);
+  color: white;
+}
+
+.btn-delete:hover:not(:disabled) {
+  background-color: #f87171;
+  border-color: #f87171;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
 }
 </style>

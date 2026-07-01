@@ -67,6 +67,21 @@ export const useRawTelemetryStore = defineStore('rawTelemetry', () => {
     }
   };
 
+  const deleteTelemetry = async (id: number) => {
+    error.value = null;
+    try {
+      await api.deleteRawTelemetry(id);
+      telemetries.value = telemetries.value.filter(t => t.id !== id);
+      if (selectedId.value === id) {
+        selectedId.value = null;
+        selectedTelemetry.value = null;
+      }
+    } catch (err: any) {
+      error.value = err.message || 'Failed to delete telemetry';
+      throw err;
+    }
+  };
+
   return {
     telemetries,
     nextCursor,
@@ -79,5 +94,6 @@ export const useRawTelemetryStore = defineStore('rawTelemetry', () => {
     fetchTelemetries,
     fetchNextPage,
     selectTelemetry,
+    deleteTelemetry,
   };
 });

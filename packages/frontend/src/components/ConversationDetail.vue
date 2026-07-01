@@ -5,8 +5,6 @@ import KpiCards from './KpiCards.vue';
 import CostDonutChart from './CostDonutChart.vue';
 import TokenBarChart from './TokenBarChart.vue';
 import ModelCostBadge from './ModelCostBadge.vue';
-import { api } from '../api/client.js';
-import type { ConversationRawTelemetry } from '../api/client.js';
 
 const store = useConversationsStore();
 
@@ -73,27 +71,6 @@ const titleInput = ref<HTMLInputElement | null>(null);
 const showDeleteModal = ref(false);
 const isDeleting = ref(false);
 
-// Raw Telemetries state
-const conversationTelemetries = ref<ConversationRawTelemetry[]>([]);
-const loadingTelemetries = ref(false);
-const showTelemetriesSection = ref(false);
-
-const loadConversationTelemetries = async (id: string) => {
-  loadingTelemetries.value = true;
-  try {
-    conversationTelemetries.value = await api.getConversationRawTelemetries(id);
-  } catch (err) {
-    console.error('Failed to load conversation telemetries:', err);
-    conversationTelemetries.value = [];
-  } finally {
-    loadingTelemetries.value = false;
-  }
-};
-
-const toggleTelemetriesSection = () => {
-  showTelemetriesSection.value = !showTelemetriesSection.value;
-};
-
 const confirmDelete = () => {
   showDeleteModal.value = true;
 };
@@ -115,15 +92,9 @@ const handleDelete = async () => {
   }
 };
 
-watch(() => store.selectedId, (newId) => {
+watch(() => store.selectedId, () => {
   isEditing.value = false;
   showDeleteModal.value = false;
-  showTelemetriesSection.value = false;
-  if (newId) {
-    loadConversationTelemetries(newId);
-  } else {
-    conversationTelemetries.value = [];
-  }
 }, { immediate: true });
 
 const startEdit = () => {
@@ -244,6 +215,10 @@ const printPdf = () => {
         <!-- Unconfigured cost warning badge -->
         <ModelCostBadge v-if="hasUnconfiguredRates" />
         <div class="export-btn-group">
+          <router-link :to="'/telemetry?conversation_id=' + store.selectedDetail.id" class="export-btn telemetry-btn">
+            <span class="btn-icon">📡</span>
+            <span>Raw Telemetry</span>
+          </router-link>
           <button @click="copyMarkdown" class="export-btn" :class="{ 'copied': isCopying }" :disabled="isCopying">
             <span class="btn-icon">{{ isCopying ? '✓' : '📋' }}</span>
             <span>{{ isCopying ? 'Copied' : 'Copy MD' }}</span>
@@ -368,36 +343,7 @@ const printPdf = () => {
       </div>
     </div>
 
-    <!-- Collapsible Raw Telemetries Section -->
-    <div class="telemetries-collapsible-section no-print">
-      <div class="collapsible-header" @click="toggleTelemetriesSection">
-        <span class="collapsible-arrow">{{ showTelemetriesSection ? '▼' : '▶' }}</span>
-        <span class="collapsible-title">📡 Raw Telemetries ({{ conversationTelemetries.length }})</span>
-      </div>
-      
-      <div v-if="showTelemetriesSection" class="collapsible-body">
-        <div v-if="loadingTelemetries" class="telemetries-loading">
-          Loading raw telemetries...
-        </div>
-        <div v-else-if="!conversationTelemetries.length" class="telemetries-empty">
-          No raw telemetries found for this conversation.
-        </div>
-        <div v-else class="telemetries-links-grid">
-          <router-link 
-            v-for="telemetry in conversationTelemetries" 
-            :key="telemetry.id"
-            :to="`/telemetry?id=${telemetry.id}`"
-            class="telemetry-link-card"
-          >
-            <div class="telemetry-link-header">
-              <span class="link-id">Trace #{{ telemetry.id }}</span>
-              <span class="link-size">{{ (telemetry.payload_size / 1024).toFixed(1) }} KB</span>
-            </div>
-            <span class="link-date">{{ formatDate(telemetry.created_at) }}</span>
-          </router-link>
-        </div>
-      </div>
-    </div>
+
 
     <!-- Delete Confirmation Modal -->
     <div v-if="showDeleteModal" class="modal-overlay no-print">
@@ -847,101 +793,15 @@ const printPdf = () => {
   border-color: #f87171;
 }
 
-/* Collapsible Telemetries Section */
-.telemetries-collapsible-section {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background-color: var(--bg-surface);
-  overflow: hidden;
-  margin-top: 16px;
+.export-btn.telemetry-btn {
+  background-color: var(--info-bg);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
 }
 
-.collapsible-header {
-  padding: 14px 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  user-select: none;
-  background-color: rgba(0, 0, 0, 0.1);
-  transition: background-color 0.2s;
-}
-
-.collapsible-header:hover {
-  background-color: var(--bg-surface-hover);
-}
-
-.collapsible-arrow {
-  font-size: 12px;
-  color: var(--text-muted);
-  width: 14px;
-}
-
-.collapsible-title {
-  font-weight: 600;
-  font-size: 14px;
+.export-btn.telemetry-btn:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-color: var(--info);
   color: var(--text-bright);
-}
-
-.collapsible-body {
-  padding: 20px;
-  border-top: 1px solid var(--border);
-  background-color: rgba(0, 0, 0, 0.05);
-}
-
-.telemetries-loading, .telemetries-empty {
-  text-align: center;
-  padding: 16px;
-  color: var(--text-muted);
-  font-style: italic;
-  font-size: 13px;
-}
-
-.telemetries-links-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.telemetry-link-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 16px;
-  background-color: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  transition: all 0.2s;
-}
-
-.telemetry-link-card:hover {
-  border-color: var(--accent);
-  background-color: var(--bg-surface-hover);
-  transform: translateY(-1px);
-}
-
-.telemetry-link-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.link-id {
-  font-weight: 600;
-  color: var(--text-bright);
-  font-size: 13px;
-}
-
-.link-size {
-  font-size: 11px;
-  color: var(--text-muted);
-  background-color: rgba(255, 255, 255, 0.05);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-.link-date {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 </style>

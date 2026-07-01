@@ -18,9 +18,24 @@ const handleRouteId = () => {
   }
 };
 
-onMounted(async () => {
-  await store.fetchTelemetries(true);
+const handleRouteParams = async (isInitial = false) => {
+  const convId = route.query.conversation_id;
+  const newQuery = convId ? String(convId) : '';
+  
+  if (store.searchQuery !== newQuery) {
+    store.searchQuery = newQuery;
+  } else if (isInitial) {
+    await store.fetchTelemetries(true);
+  }
   handleRouteId();
+};
+
+onMounted(async () => {
+  await handleRouteParams(true);
+});
+
+watch(() => route.query.conversation_id, () => {
+  handleRouteParams();
 });
 
 watch(() => route.query.id, () => {

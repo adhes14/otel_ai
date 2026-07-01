@@ -135,4 +135,23 @@ router.get('/api/conversations/:id/raw-telemetry', (req: Request, res: Response)
   }
 });
 
+// DELETE /api/raw-telemetry/:id - Delete a single raw telemetry trace
+router.delete('/api/raw-telemetry/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const telemetry = db.prepare('SELECT 1 FROM raw_telemetry WHERE id = ?').get(id);
+    if (!telemetry) {
+      return res.status(404).json({ error: `Raw telemetry with ID "${id}" not found` });
+    }
+
+    db.prepare('DELETE FROM raw_telemetry WHERE id = ?').run(id);
+
+    return res.status(200).json({ status: 'ok', id: Number(id) });
+  } catch (err) {
+    logger.error({ err, id }, 'Failed to delete raw telemetry');
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 export default router;
