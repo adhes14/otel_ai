@@ -30,7 +30,10 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const isTest = process.env.NODE_ENV === 'test' || typeof (globalThis as any).vitest !== 'undefined';
 if (!isTest) {
   // @ts-expect-error - pinoHttp default import typing resolution mismatch
-  app.use(pinoHttp({ logger }));
+  app.use(pinoHttp({ 
+    logger,
+    useLevel: 'debug'
+  }));
 }
 
 // Routes
