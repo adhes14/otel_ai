@@ -82,6 +82,7 @@ export function runMigrations() {
         id TEXT PRIMARY KEY,
         conversation_id TEXT NOT NULL,
         model_name TEXT NOT NULL,
+        agent_name TEXT,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -92,6 +93,20 @@ export function runMigrations() {
         FOREIGN KEY (model_name) REFERENCES model_costs(model_name)
       );
     `).run();
+
+    // Check if agent_name needs to be added via ALTER TABLE if the table already existed
+    try {
+      const infoSpans = db.pragma("table_info(atomic_spans)") as any[];
+      if (infoSpans && infoSpans.length > 0) {
+        const hasAgentName = infoSpans.some(col => col.name === 'agent_name');
+        if (!hasAgentName) {
+          logger.info('Detected atomic_spans missing agent_name column. Performing ALTER TABLE.');
+          db.prepare('ALTER TABLE atomic_spans ADD COLUMN agent_name TEXT').run();
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to check or alter table for agent_name');
+    }
   })();
 
   logger.info('Database migrations completed successfully.');

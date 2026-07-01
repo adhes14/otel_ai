@@ -89,10 +89,11 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const chatSessionId = findAttribute(span.attributes, 'copilot_chat.chat_session_id');
             const sessionId = findAttribute(span.attributes, 'copilot_chat.session_id');
             const genAiConvId = findAttribute(span.attributes, 'gen_ai.conversation.id');
+            const parentChatSessionId = findAttribute(span.attributes, 'copilot_chat.parent_chat_session_id');
 
-            // If a span (like invoke_agent) defines parent session_id / gen_ai.conversation.id
+            // If a span defines parent session_id / gen_ai.conversation.id / parent_chat_session_id
             // and a different chat_session_id for the subagent, track the mapping
-            const parentSessionId = sessionId || genAiConvId;
+            const parentSessionId = parentChatSessionId || sessionId || genAiConvId;
             if (parentSessionId && chatSessionId && parentSessionId !== chatSessionId) {
               subagentAliasMap.set(chatSessionId, parentSessionId);
             }
@@ -145,6 +146,8 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const modelName = findAttribute(span.attributes, 'gen_ai.response.model') || 
                               findAttribute(span.attributes, 'gen_ai.request.model') || 
                               'unknown-model';
+
+            const agentName = findAttribute(span.attributes, 'gen_ai.agent.name');
 
             const inputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.input_tokens') ?? 0);
             const outputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.output_tokens') ?? 0);
@@ -211,12 +214,13 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             // 3. Upsert Atomic Span
             db.prepare(`
               INSERT INTO atomic_spans (
-                id, conversation_id, model_name, input_tokens, output_tokens,
+                id, conversation_id, model_name, agent_name, input_tokens, output_tokens,
                 cache_read_tokens, cache_write_tokens, reasoning_tokens, created_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET
                 conversation_id = excluded.conversation_id,
                 model_name = excluded.model_name,
+                agent_name = excluded.agent_name,
                 input_tokens = excluded.input_tokens,
                 output_tokens = excluded.output_tokens,
                 cache_read_tokens = excluded.cache_read_tokens,
@@ -227,6 +231,7 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
               spanId,
               conversationId,
               modelName,
+              agentName,
               inputTokens,
               outputTokens,
               cacheReadTokens,

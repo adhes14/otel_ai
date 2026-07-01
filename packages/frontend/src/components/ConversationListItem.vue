@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useConversationsStore } from '../stores/conversations.js';
 import type { Conversation } from '../api/client.js';
 
@@ -10,6 +10,27 @@ const props = defineProps<{
 const store = useConversationsStore();
 
 const isSelected = computed(() => store.selectedId === props.conversation.id);
+
+const subagents = computed(() => {
+  if (!props.conversation.agents) return [];
+  return props.conversation.agents.filter(a => a.startsWith('tool/runSubagent-'));
+});
+
+const orchestratorAgent = computed(() => {
+  if (!props.conversation.agents) return null;
+  return props.conversation.agents.find(a => !a.startsWith('tool/runSubagent-')) || null;
+});
+
+const hasSubagents = computed(() => subagents.value.length > 0);
+
+const isExpanded = ref(false);
+
+// Auto-expand when conversation is selected
+watch(isSelected, (newVal) => {
+  if (newVal && hasSubagents.value) {
+    isExpanded.value = true;
+  }
+}, { immediate: true });
 
 const shortId = computed(() => {
   return props.conversation.id.substring(0, 8);
@@ -29,43 +50,101 @@ const relativeTime = computed(() => {
   return `${days} days ago`;
 });
 
-const selectThis = () => {
-  store.selectConversation(props.conversation.id);
+const toggleExpand = () => {
+  isExpanded.value = !isExpanded.value;
+};
+
+const selectRoot = () => {
+  store.selectConversation(props.conversation.id, null);
+};
+
+const selectAgent = (agentName: string | null) => {
+  store.selectConversation(props.conversation.id, agentName);
+};
+
+const cleanAgentName = (name: string) => {
+  if (name.startsWith('tool/runSubagent-')) {
+    return name.substring('tool/runSubagent-'.length);
+  }
+  return name;
 };
 </script>
 
 <template>
-  <div 
-    class="list-item" 
-    :class="{ 'selected': isSelected }"
-    @click="selectThis"
-  >
-    <div class="item-header">
-      <span class="item-title" :title="props.conversation.title || 'Untitled Session'">
-        {{ props.conversation.title || 'Untitled Session' }}
-      </span>
-      <span class="item-time">{{ relativeTime }}</span>
-    </div>
-    
-    <div class="item-footer">
-      <span class="item-id">#{{ shortId }}</span>
-      <div class="model-badges">
+  <div class="conversation-item-group">
+    <!-- Root item -->
+    <div 
+      class="list-item" 
+      :class="{ 
+        'selected': isSelected && !store.selectedAgentName,
+        'has-subagents': hasSubagents
+      }"
+      @click="selectRoot"
+    >
+      <div class="item-header">
         <span 
-          v-for="model in props.conversation.models" 
-          :key="model" 
-          class="badge badge-accent model-badge"
+          v-if="hasSubagents" 
+          class="expand-chevron" 
+          @click.stop="toggleExpand"
         >
-          {{ model }}
+          {{ isExpanded ? '▼' : '▶' }}
         </span>
+        <span class="item-title" :title="props.conversation.title || 'Untitled Session'">
+          {{ props.conversation.title || 'Untitled Session' }}
+        </span>
+        <span class="item-time">{{ relativeTime }}</span>
+      </div>
+      
+      <div class="item-footer" :class="{ 'with-chevron': hasSubagents }">
+        <span class="item-id">#{{ shortId }}</span>
+        <div class="model-badges">
+          <span 
+            v-for="model in props.conversation.models" 
+            :key="model" 
+            class="badge badge-accent model-badge"
+          >
+            {{ model }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-items list -->
+    <div v-if="hasSubagents && isExpanded" class="sub-items-container">
+      <!-- Orchestrator Sub-item -->
+      <div 
+        class="sub-item"
+        :class="{ 'selected': isSelected && store.selectedAgentName === orchestratorAgent }"
+        @click="selectAgent(orchestratorAgent)"
+      >
+        <span class="sub-item-icon">⚙️</span>
+        <span class="sub-item-name">{{ orchestratorAgent ? cleanAgentName(orchestratorAgent) : 'Orchestrator' }}</span>
+      </div>
+
+      <!-- Subagent Sub-items -->
+      <div 
+        v-for="agent in subagents" 
+        :key="agent"
+        class="sub-item"
+        :class="{ 'selected': isSelected && store.selectedAgentName === agent }"
+        @click="selectAgent(agent)"
+      >
+        <span class="sub-item-icon">🤖</span>
+        <span class="sub-item-name">{{ cleanAgentName(agent) }}</span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.conversation-item-group {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
 .list-item {
   padding: 16px;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
@@ -86,8 +165,24 @@ const selectThis = () => {
 .item-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+}
+
+.expand-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.expand-chevron:hover {
+  color: var(--text-bright);
 }
 
 .item-title {
@@ -113,6 +208,10 @@ const selectThis = () => {
   gap: 12px;
 }
 
+.item-footer.with-chevron {
+  padding-left: 24px;
+}
+
 .item-id {
   font-family: var(--mono);
   font-size: 11px;
@@ -131,6 +230,54 @@ const selectThis = () => {
   padding: 1px 6px;
   border-radius: 4px;
   max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sub-items-container {
+  padding-left: 12px;
+  padding-right: 12px;
+  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 2px solid var(--border);
+  margin-left: 22px;
+  margin-top: -2px;
+  margin-bottom: 8px;
+}
+
+.sub-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.sub-item:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-bright);
+}
+
+.sub-item.selected {
+  background-color: var(--bg-surface-active);
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+  color: var(--text-bright);
+  font-weight: 500;
+}
+
+.sub-item-icon {
+  font-size: 13px;
+}
+
+.sub-item-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

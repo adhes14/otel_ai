@@ -387,6 +387,114 @@ describe('Telemetry Processing Engine', () => {
     expect(missingConv).toBeUndefined();
   });
 
+  it('correctly extracts agent_name for orchestrators and subagents, and supports agent_name filtering in APIs', async () => {
+    // Clear relevant tables
+    db.prepare('DELETE FROM raw_telemetry').run();
+    db.prepare('DELETE FROM atomic_spans').run();
+    db.prepare('DELETE FROM conversations').run();
+
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 'trace-agent-test-123',
+                  spanId: 'orchestrator-chat-span',
+                  name: 'chat models/gemini-2.5-flash',
+                  startTimeUnixNano: '1719619240000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-agent-parent' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gemini-2.5-flash' } },
+                    { key: 'gen_ai.agent.name', value: { stringValue: 'test-fixer' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 1000 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 500 } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Parent agent query' } }
+                  ]
+                },
+                {
+                  traceId: 'trace-agent-test-123',
+                  spanId: 'invoke-subagent-span',
+                  name: 'invoke_agent test-executer',
+                  startTimeUnixNano: '1719619241000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'toolu_subagent_abc' } },
+                    { key: 'copilot_chat.parent_chat_session_id', value: { stringValue: 'conv-agent-parent' } },
+                    { key: 'gen_ai.agent.name', value: { stringValue: 'test-executer' } }
+                  ]
+                },
+                {
+                  traceId: 'trace-agent-test-123',
+                  spanId: 'subagent-chat-span',
+                  name: 'chat Kimi-K2.6',
+                  startTimeUnixNano: '1719619242000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'toolu_subagent_abc' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'Kimi-K2.6' } },
+                    { key: 'gen_ai.agent.name', value: { stringValue: 'tool/runSubagent-test-executer' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 200 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 100 } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify stored agent names in DB
+    const orchestratorSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('orchestrator-chat-span') as any;
+    expect(orchestratorSpan).toBeDefined();
+    expect(orchestratorSpan.agent_name).toBe('test-fixer');
+
+    const subagentSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('subagent-chat-span') as any;
+    expect(subagentSpan).toBeDefined();
+    expect(subagentSpan.agent_name).toBe('tool/runSubagent-test-executer');
+
+    // Test API: GET /api/conversations list returns agents
+    const listRes = await fetch(`${baseUrl}/api/conversations`);
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as any;
+    const convListItem = listBody.conversations.find((c: any) => c.id === 'conv-agent-parent');
+    expect(convListItem).toBeDefined();
+    expect(convListItem.agents).toContain('test-fixer');
+    expect(convListItem.agents).toContain('tool/runSubagent-test-executer');
+
+    // Test API: GET /api/conversations/:id/spans with agent_name filter
+    const spansOrchRes = await fetch(`${baseUrl}/api/conversations/conv-agent-parent/spans?agent_name=test-fixer`);
+    expect(spansOrchRes.status).toBe(200);
+    const spansOrch = await spansOrchRes.json() as any[];
+    expect(spansOrch.length).toBe(1);
+    expect(spansOrch[0].id).toBe('orchestrator-chat-span');
+
+    const spansSubRes = await fetch(`${baseUrl}/api/conversations/conv-agent-parent/spans?agent_name=tool/runSubagent-test-executer`);
+    expect(spansSubRes.status).toBe(200);
+    const spansSub = await spansSubRes.json() as any[];
+    expect(spansSub.length).toBe(1);
+    expect(spansSub[0].id).toBe('subagent-chat-span');
+
+    // Test API: GET /api/conversations/:id detail with agent_name filter
+    const detailSubRes = await fetch(`${baseUrl}/api/conversations/conv-agent-parent?agent_name=tool/runSubagent-test-executer`);
+    expect(detailSubRes.status).toBe(200);
+    const detailSub = await detailSubRes.json() as any;
+    expect(detailSub.model_breakdown.length).toBe(1);
+    expect(detailSub.model_breakdown[0].model_name).toBe('Kimi-K2.6');
+    expect(detailSub.model_breakdown[0].input_tokens).toBe(200);
+  });
+
   it('correctly regenerates conversations and atomic spans from raw_telemetry on POST /api/maintenance/reprocess', async () => {
     // 1. Clear tables
     db.prepare('DELETE FROM raw_telemetry').run();

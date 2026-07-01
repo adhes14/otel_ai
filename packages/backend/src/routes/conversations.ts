@@ -34,7 +34,9 @@ router.get('/api/conversations', (req: Request, res: Response) => {
 
     if (decoded) {
       rows = db.prepare(`
-        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, GROUP_CONCAT(DISTINCT s.model_name) as models
+        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, 
+               GROUP_CONCAT(DISTINCT s.model_name) as models,
+               GROUP_CONCAT(DISTINCT s.agent_name) as agents
         FROM conversations c
         LEFT JOIN atomic_spans s ON c.id = s.conversation_id
         WHERE c.last_seen_at < ? OR (c.last_seen_at = ? AND c.id < ?)
@@ -44,7 +46,9 @@ router.get('/api/conversations', (req: Request, res: Response) => {
       `).all(decoded.lastSeenAt, decoded.lastSeenAt, decoded.id, limit);
     } else {
       rows = db.prepare(`
-        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, GROUP_CONCAT(DISTINCT s.model_name) as models
+        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, 
+               GROUP_CONCAT(DISTINCT s.model_name) as models,
+               GROUP_CONCAT(DISTINCT s.agent_name) as agents
         FROM conversations c
         LEFT JOIN atomic_spans s ON c.id = s.conversation_id
         GROUP BY c.id
@@ -59,7 +63,8 @@ router.get('/api/conversations', (req: Request, res: Response) => {
       title: row.title,
       first_seen_at: row.first_seen_at,
       last_seen_at: row.last_seen_at,
-      models: row.models ? row.models.split(',') : []
+      models: row.models ? row.models.split(',') : [],
+      agents: row.agents ? row.agents.split(',').filter(Boolean) : []
     }));
 
     let nextCursor: string | null = null;
@@ -81,6 +86,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
 // GET /api/conversations/:id - Detail with aggregated token totals and costs per model
 router.get('/api/conversations/:id', (req: Request, res: Response) => {
   const { id } = req.params;
+  const agentName = req.query.agent_name ? String(req.query.agent_name) : null;
 
   try {
     const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as any;
@@ -88,24 +94,67 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
       return res.status(404).json({ error: `Conversation "${id}" not found` });
     }
 
-    const aggregates = db.prepare(`
-      SELECT
-        s.model_name,
-        SUM(s.input_tokens) as input_tokens,
-        SUM(s.output_tokens) as output_tokens,
-        SUM(s.cache_read_tokens) as cache_read_tokens,
-        SUM(s.cache_write_tokens) as cache_write_tokens,
-        SUM(s.reasoning_tokens) as reasoning_tokens,
-        COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
-        COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
-        COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
-        COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
-        COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
-      FROM atomic_spans s
-      LEFT JOIN model_costs mc ON s.model_name = mc.model_name
-      WHERE s.conversation_id = ?
-      GROUP BY s.model_name
-    `).all(id) as any[];
+    let aggregates: any[] = [];
+    if (agentName) {
+      if (agentName.startsWith('tool/runSubagent-')) {
+        aggregates = db.prepare(`
+          SELECT
+            s.model_name,
+            SUM(s.input_tokens) as input_tokens,
+            SUM(s.output_tokens) as output_tokens,
+            SUM(s.cache_read_tokens) as cache_read_tokens,
+            SUM(s.cache_write_tokens) as cache_write_tokens,
+            SUM(s.reasoning_tokens) as reasoning_tokens,
+            COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
+            COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
+            COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
+            COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
+            COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
+          FROM atomic_spans s
+          LEFT JOIN model_costs mc ON s.model_name = mc.model_name
+          WHERE s.conversation_id = ? AND s.agent_name = ?
+          GROUP BY s.model_name
+        `).all(id, agentName) as any[];
+      } else {
+        aggregates = db.prepare(`
+          SELECT
+            s.model_name,
+            SUM(s.input_tokens) as input_tokens,
+            SUM(s.output_tokens) as output_tokens,
+            SUM(s.cache_read_tokens) as cache_read_tokens,
+            SUM(s.cache_write_tokens) as cache_write_tokens,
+            SUM(s.reasoning_tokens) as reasoning_tokens,
+            COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
+            COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
+            COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
+            COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
+            COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
+          FROM atomic_spans s
+          LEFT JOIN model_costs mc ON s.model_name = mc.model_name
+          WHERE s.conversation_id = ? AND (s.agent_name = ? OR s.agent_name IS NULL)
+          GROUP BY s.model_name
+        `).all(id, agentName) as any[];
+      }
+    } else {
+      aggregates = db.prepare(`
+        SELECT
+          s.model_name,
+          SUM(s.input_tokens) as input_tokens,
+          SUM(s.output_tokens) as output_tokens,
+          SUM(s.cache_read_tokens) as cache_read_tokens,
+          SUM(s.cache_write_tokens) as cache_write_tokens,
+          SUM(s.reasoning_tokens) as reasoning_tokens,
+          COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
+          COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
+          COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
+          COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
+          COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
+        FROM atomic_spans s
+        LEFT JOIN model_costs mc ON s.model_name = mc.model_name
+        WHERE s.conversation_id = ?
+        GROUP BY s.model_name
+      `).all(id) as any[];
+    }
 
     // Calculate actual costs on the server side
     const model_breakdown = aggregates.map(row => {
@@ -164,6 +213,7 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
 // GET /api/conversations/:id/spans - List all atomic spans for a conversation
 router.get('/api/conversations/:id/spans', (req: Request, res: Response) => {
   const { id } = req.params;
+  const agentName = req.query.agent_name ? String(req.query.agent_name) : null;
 
   try {
     const conversation = db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id);
@@ -171,11 +221,28 @@ router.get('/api/conversations/:id/spans', (req: Request, res: Response) => {
       return res.status(404).json({ error: `Conversation "${id}" not found` });
     }
 
-    const spans = db.prepare(`
-      SELECT * FROM atomic_spans
-      WHERE conversation_id = ?
-      ORDER BY created_at ASC, id ASC
-    `).all(id);
+    let spans: any[] = [];
+    if (agentName) {
+      if (agentName.startsWith('tool/runSubagent-')) {
+        spans = db.prepare(`
+          SELECT * FROM atomic_spans
+          WHERE conversation_id = ? AND agent_name = ?
+          ORDER BY created_at ASC, id ASC
+        `).all(id, agentName);
+      } else {
+        spans = db.prepare(`
+          SELECT * FROM atomic_spans
+          WHERE conversation_id = ? AND (agent_name = ? OR agent_name IS NULL)
+          ORDER BY created_at ASC, id ASC
+        `).all(id, agentName);
+      }
+    } else {
+      spans = db.prepare(`
+        SELECT * FROM atomic_spans
+        WHERE conversation_id = ?
+        ORDER BY created_at ASC, id ASC
+      `).all(id);
+    }
 
     return res.status(200).json(spans);
   } catch (err) {

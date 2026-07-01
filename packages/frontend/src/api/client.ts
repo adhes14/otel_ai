@@ -4,6 +4,7 @@ export interface Conversation {
   first_seen_at: number;
   last_seen_at: number;
   models: string[];
+  agents?: string[];
 }
 
 export interface ConversationsResponse {
@@ -118,12 +119,20 @@ export const api = {
     return request<ConversationsResponse>(url);
   },
 
-  getConversation: (id: string) => {
-    return request<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`);
+  getConversation: (id: string, agentName?: string) => {
+    let url = `/api/conversations/${encodeURIComponent(id)}`;
+    if (agentName) {
+      url += `?agent_name=${encodeURIComponent(agentName)}`;
+    }
+    return request<ConversationDetail>(url);
   },
 
-  getConversationSpans: (id: string) => {
-    return request<AtomicSpan[]>(`/api/conversations/${encodeURIComponent(id)}/spans`);
+  getConversationSpans: (id: string, agentName?: string) => {
+    let url = `/api/conversations/${encodeURIComponent(id)}/spans`;
+    if (agentName) {
+      url += `?agent_name=${encodeURIComponent(agentName)}`;
+    }
+    return request<AtomicSpan[]>(url);
   },
 
   updateConversationTitle: (id: string, title: string) => {

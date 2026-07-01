@@ -7,6 +7,7 @@ export const useConversationsStore = defineStore('conversations', () => {
   const conversations = ref<Conversation[]>([]);
   const nextCursor = ref<string | null>(null);
   const selectedId = ref<string | null>(null);
+  const selectedAgentName = ref<string | null>(null);
   const selectedDetail = ref<ConversationDetail | null>(null);
   const selectedSpans = ref<AtomicSpan[]>([]);
   
@@ -70,15 +71,16 @@ export const useConversationsStore = defineStore('conversations', () => {
   };
 
   // Select a conversation and load its detail and spans
-  const selectConversation = async (id: string) => {
+  const selectConversation = async (id: string, agentName: string | null = null) => {
     selectedId.value = id;
+    selectedAgentName.value = agentName;
     loadingDetail.value = true;
     error.value = null;
     excludedModels.value = []; // Reset excluded models filter when switching conversations
     try {
       const [detail, spans] = await Promise.all([
-        api.getConversation(id),
-        api.getConversationSpans(id)
+        api.getConversation(id, agentName || undefined),
+        api.getConversationSpans(id, agentName || undefined)
       ]);
       selectedDetail.value = detail;
       selectedSpans.value = spans;
@@ -123,6 +125,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       conversations.value = conversations.value.filter(c => c.id !== id);
       if (selectedId.value === id) {
         selectedId.value = null;
+        selectedAgentName.value = null;
         selectedDetail.value = null;
         selectedSpans.value = [];
       }
@@ -136,6 +139,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     conversations,
     nextCursor,
     selectedId,
+    selectedAgentName,
     selectedDetail,
     selectedSpans,
     searchQuery,
