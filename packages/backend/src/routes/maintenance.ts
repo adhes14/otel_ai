@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import { db, dbPath } from '../db/database.js';
 import logger from '../utils/logger.js';
+import { processTelemetry } from '../services/telemetryProcessor.js';
 
 const router = Router();
 
@@ -61,6 +62,38 @@ router.delete('/api/maintenance/raw-telemetry', (req: Request, res: Response) =>
   } catch (err) {
     logger.error({ err }, 'Failed to purge raw telemetry');
     return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// POST /api/maintenance/reprocess
+router.post('/api/maintenance/reprocess', (req: Request, res: Response) => {
+  try {
+    db.transaction(() => {
+      // 1. Limpiar las tablas derivadas
+      db.prepare('DELETE FROM atomic_spans').run();
+      db.prepare('DELETE FROM conversations').run();
+
+      // 2. Obtener todas las telemetrías crudas en orden cronológico
+      const rows = db.prepare('SELECT id, payload FROM raw_telemetry ORDER BY id ASC').all() as { id: number; payload: string }[];
+
+      logger.info({ count: rows.length }, 'Reprocessing raw telemetry payloads to regenerate conversations');
+
+      // 3. Volver a procesar cada una
+      for (const row of rows) {
+        processTelemetry(row.id, row.payload);
+      }
+    })();
+
+    return res.status(200).json({
+      status: 'ok',
+      message: 'Conversations and spans regenerated successfully'
+    });
+  } catch (err) {
+    logger.error({ err }, 'Failed to reprocess telemetry');
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: err instanceof Error ? err.message : String(err)
+    });
   }
 });
 

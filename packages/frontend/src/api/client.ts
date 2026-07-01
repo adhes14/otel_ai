@@ -174,6 +174,12 @@ export const api = {
     );
   },
 
+  reprocessTelemetry: () => {
+    return request<{ status: string; message: string }>('/api/maintenance/reprocess', {
+      method: 'POST',
+    });
+  },
+
   getRawTelemetries: (limit = 20, cursor: string | null = null, search: string | null = null) => {
     let url = `/api/raw-telemetry?limit=${limit}`;
     if (cursor) {

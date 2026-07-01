@@ -16,6 +16,25 @@ const showConfirmModal = ref(false);
 const purging = ref(false);
 const successMessage = ref<string | null>(null);
 
+const reprocessing = ref(false);
+const showReprocessConfirmModal = ref(false);
+
+const handleReprocess = async () => {
+  reprocessing.value = true;
+  successMessage.value = null;
+  error.value = null;
+  try {
+    const response = await api.reprocessTelemetry();
+    successMessage.value = response.message || 'Successfully regenerated conversations and spans.';
+    showReprocessConfirmModal.value = false;
+    await fetchDbStat();
+  } catch (err: any) {
+    error.value = err.message || 'Failed to regenerate conversations';
+  } finally {
+    reprocessing.value = false;
+  }
+};
+
 const fetchDbStat = async () => {
   loading.value = true;
   error.value = null;
@@ -130,6 +149,26 @@ onMounted(() => {
           <p><strong>Note:</strong> Purging only removes records from the <code>raw_telemetry</code> table (which stores incoming full-payload trace JSONs). Your processed aggregates in <code>conversations</code> and <code>atomic_spans</code> will remain intact.</p>
         </div>
       </div>
+
+      <!-- Regenerate Conversations Card -->
+      <div class="settings-card warning-card">
+        <div class="card-header">
+          <h3>🔄 Regenerate Conversations</h3>
+        </div>
+
+        <div class="purge-form">
+          <p class="reprocess-warning-text">
+            Re-extract conversation metadata and atomic spans for all historical raw OTel traces.
+          </p>
+          <button class="reprocess-btn" @click="showReprocessConfirmModal = true" :disabled="reprocessing">
+            🔄 Regenerate Database
+          </button>
+        </div>
+
+        <div class="card-footer-info">
+          <p><strong>Note:</strong> This process will clear all derived <code>conversations</code> and <code>atomic_spans</code>, then replay the parsing of all stored <code>raw_telemetry</code> records. Configured model costs will not be affected.</p>
+        </div>
+      </div>
     </div>
 
     <!-- Confirmation Modal Dialog -->
@@ -150,6 +189,29 @@ onMounted(() => {
           </button>
           <button class="confirm-btn" @click="handlePurge" :disabled="purging">
             {{ purging ? 'Purging & Vacuuming...' : 'Yes, Delete Permanently' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reprocess Confirmation Modal -->
+    <div v-if="showReprocessConfirmModal" class="modal-overlay">
+      <div class="modal-content danger-modal fade-in">
+        <div class="modal-header">
+          <h2>⚠️ Confirm Database Rebuild</h2>
+        </div>
+        <div class="modal-body">
+          <p>Are you sure you want to clear and rebuild all conversation metadata?</p>
+          <div class="warning-box">
+            <p><strong>Warning:</strong> This will temporarily clear your dashboards while it parses all existing raw telemetry records. Depending on the size of your database, this may take a few seconds.</p>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="cancel-btn" @click="showReprocessConfirmModal = false" :disabled="reprocessing">
+            Cancel
+          </button>
+          <button class="confirm-btn" @click="handleReprocess" :disabled="reprocessing">
+            {{ reprocessing ? 'Rebuilding...' : 'Yes, Rebuild Now' }}
           </button>
         </div>
       </div>
@@ -444,5 +506,34 @@ onMounted(() => {
 .confirm-btn:hover {
   background-color: #dc2626;
   border-color: #dc2626;
+}
+
+.reprocess-warning-text {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.reprocess-btn {
+  background-color: var(--bg-surface-hover);
+  border: 1px solid var(--border);
+  color: var(--text-bright);
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.reprocess-btn:hover:not(:disabled) {
+  background-color: var(--border);
+  border-color: var(--text-muted);
+}
+
+.reprocess-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

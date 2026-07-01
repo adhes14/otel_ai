@@ -386,5 +386,66 @@ describe('Telemetry Processing Engine', () => {
     const missingConv = db.prepare('SELECT * FROM conversations WHERE id = ?').get('toolu_subagent_xyz');
     expect(missingConv).toBeUndefined();
   });
-});
 
+  it('correctly regenerates conversations and atomic spans from raw_telemetry on POST /api/maintenance/reprocess', async () => {
+    // 1. Clear tables
+    db.prepare('DELETE FROM raw_telemetry').run();
+    db.prepare('DELETE FROM atomic_spans').run();
+    db.prepare('DELETE FROM conversations').run();
+
+    const testPayload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  spanId: 'reprocess-span-1',
+                  name: 'chat models/gemini-2.5-flash',
+                  startTimeUnixNano: '1719619300000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'conv-reprocess-123' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gemini-2.5-flash' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 500 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 250 } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'My test prompt before reprocess' } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    // Store in raw_telemetry
+    db.prepare('INSERT INTO raw_telemetry (id, conversation_id, payload, created_at) VALUES (?, ?, ?, ?)')
+      .run(999, 'conv-reprocess-123', JSON.stringify(testPayload), Math.floor(Date.now() / 1000));
+
+    // Initially verify tables are empty (conversations & atomic_spans should not have it yet)
+    expect(db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-reprocess-123')).toBeUndefined();
+    expect(db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('reprocess-span-1')).toBeUndefined();
+
+    // Call reprocess endpoint
+    const res = await fetch(`${baseUrl}/api/maintenance/reprocess`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.status).toBe('ok');
+
+    // Verify conversation and span are now successfully regenerated and populated
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-reprocess-123') as any;
+    expect(conversation).toBeDefined();
+    expect(conversation.title).toBe('My test prompt before reprocess');
+
+    const span = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('reprocess-span-1') as any;
+    expect(span).toBeDefined();
+    expect(span.conversation_id).toBe('conv-reprocess-123');
+    expect(span.model_name).toBe('models/gemini-2.5-flash');
+    expect(span.input_tokens).toBe(500);
+    expect(span.output_tokens).toBe(250);
+  });
+});
