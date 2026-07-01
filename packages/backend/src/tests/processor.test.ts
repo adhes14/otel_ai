@@ -556,4 +556,71 @@ describe('Telemetry Processing Engine', () => {
     expect(span.input_tokens).toBe(500);
     expect(span.output_tokens).toBe(250);
   });
+
+  it('does not map the stable copilot_chat.chat_session_id to transient gen_ai.conversation.id', async () => {
+    db.prepare('DELETE FROM raw_telemetry').run();
+    db.prepare('DELETE FROM atomic_spans').run();
+    db.prepare('DELETE FROM conversations').run();
+
+    const payload = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 'trace-transient-test-456',
+                  spanId: 'chat-span-1',
+                  name: 'chat models/gemini-2.5-flash',
+                  startTimeUnixNano: '1719619240000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'stable-session-123' } },
+                    { key: 'gen_ai.conversation.id', value: { stringValue: 'transient-id-abc' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gemini-2.5-flash' } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Request 1' } }
+                  ]
+                },
+                {
+                  traceId: 'trace-transient-test-456',
+                  spanId: 'chat-span-2',
+                  name: 'chat models/gemini-2.5-flash',
+                  startTimeUnixNano: '1719619250000000000',
+                  attributes: [
+                    { key: 'copilot_chat.chat_session_id', value: { stringValue: 'stable-session-123' } },
+                    { key: 'gen_ai.conversation.id', value: { stringValue: 'transient-id-def' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gemini-2.5-flash' } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Request 2' } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify both spans are grouped under 'stable-session-123', NOT the transient IDs
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('stable-session-123') as any;
+    expect(conversation).toBeDefined();
+
+    const missingConv1 = db.prepare('SELECT * FROM conversations WHERE id = ?').get('transient-id-abc');
+    expect(missingConv1).toBeUndefined();
+
+    const missingConv2 = db.prepare('SELECT * FROM conversations WHERE id = ?').get('transient-id-def');
+    expect(missingConv2).toBeUndefined();
+
+    const spans = db.prepare('SELECT * FROM atomic_spans WHERE conversation_id = ?').all('stable-session-123');
+    expect(spans.length).toBe(2);
+  });
 });

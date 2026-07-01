@@ -91,9 +91,9 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
             const genAiConvId = findAttribute(span.attributes, 'gen_ai.conversation.id');
             const parentChatSessionId = findAttribute(span.attributes, 'copilot_chat.parent_chat_session_id');
 
-            // If a span defines parent session_id / gen_ai.conversation.id / parent_chat_session_id
+            // If a span defines parent session_id / parent_chat_session_id
             // and a different chat_session_id for the subagent, track the mapping
-            const parentSessionId = parentChatSessionId || sessionId || genAiConvId;
+            const parentSessionId = parentChatSessionId || sessionId;
             if (parentSessionId && chatSessionId && parentSessionId !== chatSessionId) {
               subagentAliasMap.set(chatSessionId, parentSessionId);
             }
