@@ -34,7 +34,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
 
     if (decoded) {
       rows = db.prepare(`
-        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, 
+        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, c.source,
                GROUP_CONCAT(DISTINCT s.model_name) as models,
                GROUP_CONCAT(DISTINCT s.agent_name) as agents
         FROM conversations c
@@ -46,7 +46,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
       `).all(decoded.lastSeenAt, decoded.lastSeenAt, decoded.id, limit);
     } else {
       rows = db.prepare(`
-        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, 
+        SELECT c.id, c.title, c.first_seen_at, c.last_seen_at, c.source,
                GROUP_CONCAT(DISTINCT s.model_name) as models,
                GROUP_CONCAT(DISTINCT s.agent_name) as agents
         FROM conversations c
@@ -63,6 +63,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
       title: row.title,
       first_seen_at: row.first_seen_at,
       last_seen_at: row.last_seen_at,
+      source: row.source,
       models: row.models ? row.models.split(',') : [],
       agents: row.agents ? row.agents.split(',').filter(Boolean) : []
     }));
@@ -202,6 +203,7 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
       title: conversation.title,
       first_seen_at: conversation.first_seen_at,
       last_seen_at: conversation.last_seen_at,
+      source: conversation.source,
       model_breakdown
     });
   } catch (err) {

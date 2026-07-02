@@ -44,6 +44,104 @@ function extractPromptFromRequest(userReqStr: string): string | null {
   return prompt || null;
 }
 
+interface TelemetryResolver {
+  resolveSource(): string;
+  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void;
+  resolveConversationId(
+    span: any,
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): string | null;
+}
+
+class VSCodeTelemetryResolver implements TelemetryResolver {
+  resolveSource(): string {
+    return 'vscode';
+  }
+
+  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
+    for (const span of spans) {
+      const traceId = span.traceId;
+      if (!traceId) continue;
+      
+      const chatSessionId = findAttribute(span.attributes, 'copilot_chat.chat_session_id');
+      const sessionId = findAttribute(span.attributes, 'copilot_chat.session_id');
+      const genAiConvId = findAttribute(span.attributes, 'gen_ai.conversation.id');
+      const parentChatSessionId = findAttribute(span.attributes, 'copilot_chat.parent_chat_session_id');
+
+      const parentSessionId = parentChatSessionId || sessionId;
+      if (parentSessionId && chatSessionId && parentSessionId !== chatSessionId) {
+        subagentAliasMap.set(chatSessionId, parentSessionId);
+      }
+      
+      let resolvedSessionId = chatSessionId || sessionId;
+      if (!resolvedSessionId && (span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent '))) {
+        resolvedSessionId = genAiConvId;
+      }
+      
+      if (resolvedSessionId) {
+        const existing = traceSessionMap.get(traceId);
+        if (!existing || (existing.startsWith('toolu_') && !resolvedSessionId.startsWith('toolu_'))) {
+          traceSessionMap.set(traceId, resolvedSessionId);
+        }
+      }
+    }
+  }
+
+  resolveConversationId(
+    span: any,
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): string | null {
+    let conversationId = findAttribute(span.attributes, 'copilot_chat.chat_session_id') ||
+                         findAttribute(span.attributes, 'copilot_chat.session_id');
+    
+    if (!conversationId && span.traceId) {
+      conversationId = traceSessionMap.get(span.traceId);
+    }
+    
+    if (conversationId && subagentAliasMap.has(conversationId)) {
+      conversationId = subagentAliasMap.get(conversationId);
+    }
+    
+    return conversationId;
+  }
+}
+
+class CopilotCliTelemetryResolver implements TelemetryResolver {
+  resolveSource(): string {
+    return 'copilot-cli';
+  }
+
+  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
+    // Copilot CLI does not need pre-scan since conversation_id is directly on each chat span.
+  }
+
+  resolveConversationId(
+    span: any,
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): string | null {
+    return findAttribute(span.attributes, 'gen_ai.conversation.id');
+  }
+}
+
+function getTelemetryResolver(payload: any): TelemetryResolver {
+  const resourceSpans = payload.resourceSpans;
+  if (resourceSpans && Array.isArray(resourceSpans)) {
+    for (const r of resourceSpans) {
+      const serviceNameAttr = r.resource?.attributes?.find?.((a: any) => a.key === 'service.name');
+      if (serviceNameAttr) {
+        const serviceName = getAttributeValue(serviceNameAttr);
+        if (serviceName === 'github-copilot') {
+          return new CopilotCliTelemetryResolver();
+        }
+      }
+    }
+  }
+  return new VSCodeTelemetryResolver();
+}
+
 export function processTelemetry(rawId: number, rawPayload: string | object) {
   try {
     let payload: any;
@@ -63,55 +161,19 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
       .flatMap((s: any) => s?.spans || []);
 
     db.transaction(() => {
+      const resolver = getTelemetryResolver(payload);
+      const source = resolver.resolveSource();
+
       // Pre-scan all spans to build a map of traceId -> chatSessionId and subagentAliasMap
       const traceSessionMap = new Map<string, string>();
       const subagentAliasMap = new Map<string, string>();
-      
-      for (const span of spans) {
-        const traceId = span.traceId;
-        if (!traceId) continue;
-        
-        const chatSessionId = findAttribute(span.attributes, 'copilot_chat.chat_session_id');
-        const sessionId = findAttribute(span.attributes, 'copilot_chat.session_id');
-        const genAiConvId = findAttribute(span.attributes, 'gen_ai.conversation.id');
-        const parentChatSessionId = findAttribute(span.attributes, 'copilot_chat.parent_chat_session_id');
-
-        // If a span defines parent session_id / parent_chat_session_id
-        // and a different chat_session_id for the subagent, track the mapping
-        const parentSessionId = parentChatSessionId || sessionId;
-        if (parentSessionId && chatSessionId && parentSessionId !== chatSessionId) {
-          subagentAliasMap.set(chatSessionId, parentSessionId);
-        }
-        
-        let resolvedSessionId = chatSessionId || sessionId;
-        if (!resolvedSessionId && (span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent '))) {
-          resolvedSessionId = genAiConvId;
-        }
-        
-        if (resolvedSessionId) {
-          const existing = traceSessionMap.get(traceId);
-          // Prefer non-subagent session IDs if they exist
-          if (!existing || (existing.startsWith('toolu_') && !resolvedSessionId.startsWith('toolu_'))) {
-            traceSessionMap.set(traceId, resolvedSessionId);
-          }
-        }
-      }
+      resolver.preScanSpans(spans, traceSessionMap, subagentAliasMap);
 
       for (const span of spans) {
         // Target only leaf nodes representing LLM chat interactions (e.g. "chat" or "chat <model_name>")
         if (span.name !== 'chat' && !span.name.startsWith('chat ')) continue;
 
-        let conversationId = findAttribute(span.attributes, 'copilot_chat.chat_session_id') ||
-                             findAttribute(span.attributes, 'copilot_chat.session_id');
-        
-        if (!conversationId && span.traceId) {
-          conversationId = traceSessionMap.get(span.traceId);
-        }
-        
-        // Resolve alias if it is a subagent session ID
-        if (conversationId && subagentAliasMap.has(conversationId)) {
-          conversationId = subagentAliasMap.get(conversationId);
-        }
+        let conversationId = resolver.resolveConversationId(span, traceSessionMap, subagentAliasMap);
 
         // Skip spans that do not belong to a real user conversation/session (e.g. system/agent utility calls)
         if (!conversationId) continue;
@@ -163,17 +225,19 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
         // 2. Upsert Conversation
         const existingConv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
         if (!existingConv) {
-          db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run(
+          db.prepare('INSERT INTO conversations (id, title, first_seen_at, last_seen_at, source) VALUES (?, ?, ?, ?, ?)').run(
             conversationId,
             fallbackTitle || null,
             spanTimeSec,
-            spanTimeSec
+            spanTimeSec,
+            source
           );
         } else {
-          db.prepare('UPDATE conversations SET title = ?, first_seen_at = ?, last_seen_at = ? WHERE id = ?').run(
+          db.prepare('UPDATE conversations SET title = ?, first_seen_at = ?, last_seen_at = ?, source = ? WHERE id = ?').run(
             existingConv.title || fallbackTitle || null,
             Math.min(existingConv.first_seen_at, spanTimeSec),
             Math.max(existingConv.last_seen_at, spanTimeSec),
+            existingConv.source || source,
             conversationId
           );
         }

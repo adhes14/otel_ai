@@ -5,6 +5,7 @@ export interface Conversation {
   last_seen_at: number;
   models: string[];
   agents?: string[];
+  source?: string;
 }
 
 export interface ConversationsResponse {
@@ -44,6 +45,7 @@ export interface ConversationDetail {
   first_seen_at: number;
   last_seen_at: number;
   model_breakdown: ModelCostBreakdown[];
+  source?: string;
 }
 
 export interface AtomicSpan {

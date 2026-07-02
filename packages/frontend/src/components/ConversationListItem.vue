@@ -97,13 +97,24 @@ const cleanAgentName = (name: string) => {
       
       <div class="item-footer" :class="{ 'with-chevron': hasSubagents }">
         <span class="item-id">#{{ shortId }}</span>
-        <div class="model-badges">
+        <div class="source-badges">
           <span 
-            v-for="model in props.conversation.models" 
-            :key="model" 
-            class="badge badge-accent model-badge"
+            v-if="props.conversation.source === 'vscode'" 
+            class="badge badge-vscode source-badge"
           >
-            {{ model }}
+            VS Code
+          </span>
+          <span 
+            v-else-if="props.conversation.source === 'copilot-cli'" 
+            class="badge badge-copilot-cli source-badge"
+          >
+            Copilot CLI
+          </span>
+          <span 
+            v-else
+            class="badge badge-unknown source-badge"
+          >
+            {{ props.conversation.source || 'VS Code' }}
           </span>
         </div>
       </div>
@@ -218,14 +229,14 @@ const cleanAgentName = (name: string) => {
   color: var(--text-muted);
 }
 
-.model-badges {
+.source-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   justify-content: flex-end;
 }
 
-.model-badge {
+.source-badge {
   font-size: 9px;
   padding: 1px 6px;
   border-radius: 4px;

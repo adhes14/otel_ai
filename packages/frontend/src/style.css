@@ -190,6 +190,24 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--accent-border);
 }
 
+.badge-vscode {
+  background-color: rgba(0, 122, 204, 0.15);
+  color: #389ffd;
+  border: 1px solid rgba(0, 122, 204, 0.4);
+}
+
+.badge-copilot-cli {
+  background-color: rgba(240, 246, 252, 0.10);
+  color: #e6edf3;
+  border: 1px solid rgba(240, 246, 252, 0.2);
+}
+
+.badge-unknown {
+  background-color: var(--bg-surface-active);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
 /* Global Print Styles */
 @media print {
   .no-print,

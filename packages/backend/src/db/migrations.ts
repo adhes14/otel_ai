@@ -72,7 +72,8 @@ export function runMigrations() {
         id TEXT PRIMARY KEY,
         title TEXT,
         first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
-        last_seen_at INTEGER NOT NULL DEFAULT (unixepoch())
+        last_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        source TEXT NOT NULL DEFAULT 'vscode'
       );
     `).run();
 
@@ -106,6 +107,20 @@ export function runMigrations() {
       }
     } catch (err) {
       logger.error({ err }, 'Failed to check or alter table for agent_name');
+    }
+
+    // Check if source needs to be added via ALTER TABLE if the table already existed
+    try {
+      const infoConv = db.pragma("table_info(conversations)") as any[];
+      if (infoConv && infoConv.length > 0) {
+        const hasSource = infoConv.some(col => col.name === 'source');
+        if (!hasSource) {
+          logger.info('Detected conversations missing source column. Performing ALTER TABLE.');
+          db.prepare('ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT "vscode"').run();
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to check or alter table for conversations source');
     }
   })();
 
