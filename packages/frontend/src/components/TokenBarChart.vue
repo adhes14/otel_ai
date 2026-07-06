@@ -108,7 +108,12 @@ const chartOptions = computed(() => {
           title: (tooltipItems: any) => {
             const index = tooltipItems[0].dataIndex;
             const span = visibleSpans.value[index];
-            return `Model: ${span.model_name}`;
+            const lines = [`Span ID: ${span.id}`];
+            if (span.raw_telemetry_id) {
+              lines.push(`Telemetry ID: #${span.raw_telemetry_id}`);
+            }
+            lines.push(`Model: ${span.model_name}`);
+            return lines;
           },
         },
       },

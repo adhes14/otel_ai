@@ -106,13 +106,14 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
         // 3. Upsert Atomic Span
         db.prepare(`
           INSERT INTO atomic_spans (
-            id, conversation_id, model_name, agent_name, input_tokens, output_tokens,
+            id, conversation_id, model_name, agent_name, raw_telemetry_id, input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, reasoning_tokens, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             conversation_id = excluded.conversation_id,
             model_name = excluded.model_name,
             agent_name = excluded.agent_name,
+            raw_telemetry_id = excluded.raw_telemetry_id,
             input_tokens = excluded.input_tokens,
             output_tokens = excluded.output_tokens,
             cache_read_tokens = excluded.cache_read_tokens,
@@ -124,6 +125,7 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
           conversationId,
           modelName,
           agentName,
+          rawId,
           inputTokens,
           outputTokens,
           cacheReadTokens,

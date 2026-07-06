@@ -69,19 +69,30 @@ router.delete('/api/maintenance/raw-telemetry', (req: Request, res: Response) =>
 router.post('/api/maintenance/reprocess', (req: Request, res: Response) => {
   try {
     db.transaction(() => {
-      // 1. Limpiar las tablas derivadas
+      // 1. Guardar los títulos personalizados en memoria
+      const existingTitles = db.prepare("SELECT id, title FROM conversations WHERE title IS NOT NULL AND title != ''").all() as { id: string; title: string }[];
+      logger.info({ count: existingTitles.length }, 'Preserving conversation titles before reprocessing');
+
+      // 2. Limpiar las tablas derivadas
       db.prepare('DELETE FROM atomic_spans').run();
       db.prepare('DELETE FROM conversations').run();
 
-      // 2. Obtener todas las telemetrías crudas en orden cronológico
+      // 3. Obtener todas las telemetrías crudas en orden cronológico
       const rows = db.prepare('SELECT id, payload FROM raw_telemetry ORDER BY id ASC').all() as { id: number; payload: string }[];
 
       logger.info({ count: rows.length }, 'Reprocessing raw telemetry payloads to regenerate conversations');
 
-      // 3. Volver a procesar cada una
+      // 4. Volver a procesar cada una
       for (const row of rows) {
         processTelemetry(row.id, row.payload);
       }
+
+      // 5. Restaurar los títulos personalizados
+      const updateStmt = db.prepare('UPDATE conversations SET title = ? WHERE id = ?');
+      for (const item of existingTitles) {
+        updateStmt.run(item.title, item.id);
+      }
+      logger.info('Restored conversation titles successfully');
     })();
 
     return res.status(200).json({

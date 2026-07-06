@@ -111,6 +111,7 @@ describe('Telemetry Processing Engine', () => {
     expect(span.cache_write_tokens).toBe(150);
     expect(span.reasoning_tokens).toBe(100);
     expect(span.created_at).toBe(1719619200);
+    expect(span.raw_telemetry_id).toBeGreaterThan(0);
 
     // Verify that the ignore-span-2 was NOT inserted
     const ignoredSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('ignore-span-2');

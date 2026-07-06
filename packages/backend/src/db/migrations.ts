@@ -84,6 +84,7 @@ export function runMigrations() {
         conversation_id TEXT NOT NULL,
         model_name TEXT NOT NULL,
         agent_name TEXT,
+        raw_telemetry_id INTEGER,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -107,6 +108,20 @@ export function runMigrations() {
       }
     } catch (err) {
       logger.error({ err }, 'Failed to check or alter table for agent_name');
+    }
+
+    // Check if raw_telemetry_id needs to be added via ALTER TABLE if the table already existed
+    try {
+      const infoSpans = db.pragma("table_info(atomic_spans)") as any[];
+      if (infoSpans && infoSpans.length > 0) {
+        const hasRawTelemetryId = infoSpans.some(col => col.name === 'raw_telemetry_id');
+        if (!hasRawTelemetryId) {
+          logger.info('Detected atomic_spans missing raw_telemetry_id column. Performing ALTER TABLE.');
+          db.prepare('ALTER TABLE atomic_spans ADD COLUMN raw_telemetry_id INTEGER').run();
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to check or alter table for raw_telemetry_id');
     }
 
     // Check if source needs to be added via ALTER TABLE if the table already existed

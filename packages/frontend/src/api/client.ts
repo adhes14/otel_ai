@@ -58,6 +58,7 @@ export interface AtomicSpan {
   cache_write_tokens: number;
   reasoning_tokens: number;
   created_at: number;
+  raw_telemetry_id?: number;
 }
 
 export interface ModelCost {
