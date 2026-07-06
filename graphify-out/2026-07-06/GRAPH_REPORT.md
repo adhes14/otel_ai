@@ -1,7 +1,7 @@
 # Graph Report - otel_ai  (2026-07-06)
 
 ## Corpus Check
-- 51 files · ~24,361 words
+- 51 files · ~24,266 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary

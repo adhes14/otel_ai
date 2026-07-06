@@ -15,9 +15,9 @@
     "semantic_hash": "134447cef33cc5f41241ee517174efba"
   },
   "packages/backend/src/db/migrations.ts": {
-    "mtime": 1783356480.1273506,
-    "ast_hash": "b6378eac8fbabc996c380bb611e3e644",
-    "semantic_hash": ""
+    "mtime": 1782950601.4213398,
+    "ast_hash": "c37ec33bc8b0b9ee9394f138f74c1839",
+    "semantic_hash": "c37ec33bc8b0b9ee9394f138f74c1839"
   },
   "packages/backend/src/index.ts": {
     "mtime": 1782914160.3415115,
@@ -60,9 +60,9 @@
     "semantic_hash": "80a400a1d3dea11424b27f8d1f2b1736"
   },
   "packages/backend/src/services/telemetryProcessor.ts": {
-    "mtime": 1783356485.063351,
-    "ast_hash": "3026445622d89c2969b379b0a3d29761",
-    "semantic_hash": ""
+    "mtime": 1782951331.7613072,
+    "ast_hash": "4cb38f674ebe6ea39865d35d787ae4d9",
+    "semantic_hash": "4cb38f674ebe6ea39865d35d787ae4d9"
   },
   "packages/backend/src/tests/conversations.test.ts": {
     "mtime": 1782766956.9030526,
@@ -80,9 +80,9 @@
     "semantic_hash": "3b6d7bfeed32714fb99ead7bc47135b6"
   },
   "packages/backend/src/tests/processor.test.ts": {
-    "mtime": 1783356508.0273516,
-    "ast_hash": "b30fd7f14c5be94782f1d33fade3ae53",
-    "semantic_hash": ""
+    "mtime": 1783355387.5434015,
+    "ast_hash": "8f4e61194e754177027b48959171102f",
+    "semantic_hash": "8f4e61194e754177027b48959171102f"
   },
   "packages/backend/src/utils/logger.ts": {
     "mtime": 1783355383.7674017,
@@ -110,9 +110,9 @@
     "semantic_hash": "e0e7d2947337486e7719bcdbd0b59f82"
   },
   "packages/frontend/src/api/client.ts": {
-    "mtime": 1783356489.443351,
-    "ast_hash": "80b22bdab63f30aefe1a880b9efcfb71",
-    "semantic_hash": ""
+    "mtime": 1782950637.0093403,
+    "ast_hash": "71d47435a03bf359c55d8aab0bab2527",
+    "semantic_hash": "71d47435a03bf359c55d8aab0bab2527"
   },
   "packages/frontend/src/components/ConversationDetail.vue": {
     "mtime": 1782875269.8997889,
@@ -160,8 +160,8 @@
     "semantic_hash": "e7919429cbcbb8f7a55aeb2ffc50d4ce"
   },
   "packages/frontend/src/components/TokenBarChart.vue": {
-    "mtime": 1783356495.263351,
-    "ast_hash": "044692ee321c6f27997f900c93250302",
+    "mtime": 1783355319.6474032,
+    "ast_hash": "e1ed44dd5d9441399e2dcfffb97b1748",
     "semantic_hash": ""
   },
   "packages/frontend/src/main.ts": {
