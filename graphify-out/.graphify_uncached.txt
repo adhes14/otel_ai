@@ -1,0 +1,10 @@
+/home/adhes/projects/otel_ai/PRD.md
+/home/adhes/projects/otel_ai/README.md
+/home/adhes/projects/otel_ai/packages/frontend/README.md
+/home/adhes/projects/otel_ai/packages/frontend/index.html
+/home/adhes/projects/otel_ai/pnpm-workspace.yaml
+/home/adhes/projects/otel_ai/packages/frontend/public/favicon.svg
+/home/adhes/projects/otel_ai/packages/frontend/public/icons.svg
+/home/adhes/projects/otel_ai/packages/frontend/src/assets/hero.png
+/home/adhes/projects/otel_ai/packages/frontend/src/assets/vite.svg
+/home/adhes/projects/otel_ai/packages/frontend/src/assets/vue.svg
