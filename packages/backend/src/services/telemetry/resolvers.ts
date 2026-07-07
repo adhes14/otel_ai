@@ -1,18 +1,100 @@
-import { findAttribute, getAttributeValue } from './helpers.js';
+import { findAttribute, getAttributeValue, extractPromptFromRequest } from './helpers.js';
+import logger from '../../utils/logger.js';
+
+export interface ProcessableSpan {
+  conversationId: string;
+  spanId: string;
+  modelName: string;
+  agentName: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  createdAt: number;      // Unix seconds
+  fallbackTitle: string | null;
+}
 
 export interface TelemetryResolver {
   resolveSource(): string;
+  resolveReasoningTokenKey(): string;
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void;
   resolveConversationId(
     span: any,
     traceSessionMap: Map<string, string>,
     subagentAliasMap: Map<string, string>
   ): string | null;
+  resolveSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): ProcessableSpan[];
+}
+
+function extractCreatedAt(span: any): number {
+  const now = Math.floor(Date.now() / 1000);
+  let spanTimeSec = now;
+  const timeNano = span.startTimeUnixNano || span.start_time_unix_nano || span.timeUnixNano || span.time_unix_nano;
+  if (timeNano) {
+    try {
+      spanTimeSec = Math.floor(Number(BigInt(timeNano) / 1000000000n));
+    } catch {
+      const num = Number(timeNano);
+      if (!isNaN(num)) {
+        spanTimeSec = num > 1e11 ? Math.floor(num / 1000) : num;
+      }
+    }
+  }
+  return spanTimeSec;
+}
+
+function mapSpanToProcessable(
+  span: any,
+  resolver: TelemetryResolver,
+  conversationId: string
+): ProcessableSpan {
+  const spanId = span.spanId || span.span_id || `gen-${Math.random().toString(36).substring(2, 11)}`;
+  const modelName = findAttribute(span.attributes, 'gen_ai.response.model') || 
+                    findAttribute(span.attributes, 'gen_ai.request.model') || 
+                    'unknown-model';
+  const agentName = findAttribute(span.attributes, 'gen_ai.agent.name');
+
+  const inputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.input_tokens') ?? 0);
+  const outputTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.output_tokens') ?? 0);
+  const cacheReadTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens') ?? 0);
+  const cacheWriteTokens = Number(findAttribute(span.attributes, 'gen_ai.usage.cache_creation.input_tokens') ?? 0);
+  const reasoningTokens = Number(findAttribute(span.attributes, resolver.resolveReasoningTokenKey()) ?? 0);
+
+  const userRequest = findAttribute(span.attributes, 'copilot_chat.user_request');
+  let fallbackTitle: string | null = null;
+  if (typeof userRequest === 'string') {
+    fallbackTitle = extractPromptFromRequest(userRequest);
+  }
+
+  const createdAt = extractCreatedAt(span);
+
+  return {
+    conversationId,
+    spanId,
+    modelName,
+    agentName,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    reasoningTokens,
+    createdAt,
+    fallbackTitle
+  };
 }
 
 export class VSCodeTelemetryResolver implements TelemetryResolver {
   resolveSource(): string {
     return 'vscode';
+  }
+
+  resolveReasoningTokenKey(): string {
+    return 'gen_ai.usage.reasoning_tokens';
   }
 
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
@@ -62,11 +144,34 @@ export class VSCodeTelemetryResolver implements TelemetryResolver {
     
     return conversationId;
   }
+
+  resolveSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): ProcessableSpan[] {
+    const result: ProcessableSpan[] = [];
+    for (const span of spans) {
+      if (span.name !== 'chat' && !span.name.startsWith('chat ')) {
+        continue;
+      }
+      const conversationId = this.resolveConversationId(span, traceSessionMap, subagentAliasMap);
+      if (!conversationId) {
+        continue;
+      }
+      result.push(mapSpanToProcessable(span, this, conversationId));
+    }
+    return result;
+  }
 }
 
 export class CopilotCliTelemetryResolver implements TelemetryResolver {
   resolveSource(): string {
     return 'copilot-cli';
+  }
+
+  resolveReasoningTokenKey(): string {
+    return 'gen_ai.usage.reasoning.output_tokens';
   }
 
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
@@ -80,7 +185,54 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
   ): string | null {
     return findAttribute(span.attributes, 'gen_ai.conversation.id');
   }
+
+  resolveSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): ProcessableSpan[] {
+    const result: ProcessableSpan[] = [];
+    
+    // Step 1: Identify all agent invocation span IDs to filter out their child chat spans
+    const agentSpanIds = new Set<string>();
+    for (const span of spans) {
+      if (span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent ')) {
+        if (span.spanId) {
+          agentSpanIds.add(span.spanId);
+        }
+      }
+    }
+
+    // Step 2: Process spans
+    for (const span of spans) {
+      const isAgent = span.name === 'invoke_agent' || span.name?.startsWith('invoke_agent ');
+      const isChat = span.name === 'chat' || span.name?.startsWith('chat ');
+      
+      if (!isAgent && !isChat) {
+        continue;
+      }
+
+      // If it's a chat span and its parent is an invoke_agent span, skip it (delegated to agent span)
+      if (isChat && span.parentSpanId && agentSpanIds.has(span.parentSpanId)) {
+        continue;
+      }
+
+      const conversationId = this.resolveConversationId(span, traceSessionMap, subagentAliasMap);
+      if (!conversationId) {
+        continue;
+      }
+
+      result.push(mapSpanToProcessable(span, this, conversationId));
+    }
+
+    return result;
+  }
 }
+
+const RESOLVER_REGISTRY: Record<string, () => TelemetryResolver> = {
+  'github-copilot': () => new CopilotCliTelemetryResolver(),
+  'copilot-chat': () => new VSCodeTelemetryResolver(),
+};
 
 export function getTelemetryResolver(payload: any): TelemetryResolver {
   const resourceSpans = payload.resourceSpans;
@@ -89,11 +241,17 @@ export function getTelemetryResolver(payload: any): TelemetryResolver {
       const serviceNameAttr = r.resource?.attributes?.find?.((a: any) => a.key === 'service.name');
       if (serviceNameAttr) {
         const serviceName = getAttributeValue(serviceNameAttr);
-        if (serviceName === 'github-copilot') {
-          return new CopilotCliTelemetryResolver();
+        if (serviceName) {
+          const creator = RESOLVER_REGISTRY[serviceName];
+          if (creator) {
+            return creator();
+          } else {
+            logger.warn({ serviceName }, 'Unknown service name in telemetry, falling back to VSCodeTelemetryResolver');
+          }
         }
       }
     }
   }
   return new VSCodeTelemetryResolver();
 }
+
