@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/database.js';
 import logger from '../utils/logger.js';
+import { getTelemetryResolverBySource } from '../services/telemetry/resolvers.js';
 
 const router = Router();
 
@@ -58,15 +59,20 @@ router.get('/api/conversations', (req: Request, res: Response) => {
     }
 
     // Format list response
-    const conversations = rows.map(row => ({
-      id: row.id,
-      title: row.title,
-      first_seen_at: row.first_seen_at,
-      last_seen_at: row.last_seen_at,
-      source: row.source,
-      models: row.models ? row.models.split(',') : [],
-      agents: row.agents ? row.agents.split(',').filter(Boolean) : []
-    }));
+    const conversations = rows.map(row => {
+      const resolver = getTelemetryResolverBySource(row.source);
+      const rawAgents = row.agents ? row.agents.split(',').filter(Boolean) : [];
+      const agents = rawAgents.map((a: string) => resolver.formatAgentNameForApi(a));
+      return {
+        id: row.id,
+        title: row.title,
+        first_seen_at: row.first_seen_at,
+        last_seen_at: row.last_seen_at,
+        source: row.source,
+        models: row.models ? row.models.split(',') : [],
+        agents
+      };
+    });
 
     let nextCursor: string | null = null;
     if (conversations.length === limit) {
@@ -97,45 +103,26 @@ router.get('/api/conversations/:id', (req: Request, res: Response) => {
 
     let aggregates: any[] = [];
     if (agentName) {
-      if (agentName.startsWith('tool/runSubagent-')) {
-        aggregates = db.prepare(`
-          SELECT
-            s.model_name,
-            SUM(s.input_tokens) as input_tokens,
-            SUM(s.output_tokens) as output_tokens,
-            SUM(s.cache_read_tokens) as cache_read_tokens,
-            SUM(s.cache_write_tokens) as cache_write_tokens,
-            SUM(s.reasoning_tokens) as reasoning_tokens,
-            COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
-            COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
-            COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
-            COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
-            COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
-          FROM atomic_spans s
-          LEFT JOIN model_costs mc ON s.model_name = mc.model_name
-          WHERE s.conversation_id = ? AND s.agent_name = ?
-          GROUP BY s.model_name
-        `).all(id, agentName) as any[];
-      } else {
-        aggregates = db.prepare(`
-          SELECT
-            s.model_name,
-            SUM(s.input_tokens) as input_tokens,
-            SUM(s.output_tokens) as output_tokens,
-            SUM(s.cache_read_tokens) as cache_read_tokens,
-            SUM(s.cache_write_tokens) as cache_write_tokens,
-            SUM(s.reasoning_tokens) as reasoning_tokens,
-            COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
-            COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
-            COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
-            COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
-            COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
-          FROM atomic_spans s
-          LEFT JOIN model_costs mc ON s.model_name = mc.model_name
-          WHERE s.conversation_id = ? AND (s.agent_name = ? OR s.agent_name IS NULL)
-          GROUP BY s.model_name
-        `).all(id, agentName) as any[];
-      }
+      const resolver = getTelemetryResolverBySource(conversation.source);
+      const { sql: filterSql, params: filterParams } = resolver.getAgentFilterSql(agentName);
+      aggregates = db.prepare(`
+        SELECT
+          s.model_name,
+          SUM(s.input_tokens) as input_tokens,
+          SUM(s.output_tokens) as output_tokens,
+          SUM(s.cache_read_tokens) as cache_read_tokens,
+          SUM(s.cache_write_tokens) as cache_write_tokens,
+          SUM(s.reasoning_tokens) as reasoning_tokens,
+          COALESCE(mc.input_cost_per_m, 0) as input_cost_per_m,
+          COALESCE(mc.output_cost_per_m, 0) as output_cost_per_m,
+          COALESCE(mc.cache_read_cost_per_m, 0) as cache_read_cost_per_m,
+          COALESCE(mc.cache_write_cost_per_m, 0) as cache_write_cost_per_m,
+          COALESCE(mc.reasoning_cost_per_m, 0) as reasoning_cost_per_m
+        FROM atomic_spans s
+        LEFT JOIN model_costs mc ON s.model_name = mc.model_name
+        WHERE s.conversation_id = ? AND ${filterSql}
+        GROUP BY s.model_name
+      `).all(id, ...filterParams) as any[];
     } else {
       aggregates = db.prepare(`
         SELECT
@@ -225,19 +212,17 @@ router.get('/api/conversations/:id/spans', (req: Request, res: Response) => {
 
     let spans: any[] = [];
     if (agentName) {
-      if (agentName.startsWith('tool/runSubagent-')) {
-        spans = db.prepare(`
-          SELECT * FROM atomic_spans
-          WHERE conversation_id = ? AND agent_name = ?
-          ORDER BY created_at ASC, id ASC
-        `).all(id, agentName);
-      } else {
-        spans = db.prepare(`
-          SELECT * FROM atomic_spans
-          WHERE conversation_id = ? AND (agent_name = ? OR agent_name IS NULL)
-          ORDER BY created_at ASC, id ASC
-        `).all(id, agentName);
+      const conversation = db.prepare('SELECT source FROM conversations WHERE id = ?').get(id) as any;
+      if (!conversation) {
+        return res.status(404).json({ error: `Conversation "${id}" not found` });
       }
+      const resolver = getTelemetryResolverBySource(conversation.source);
+      const { sql: filterSql, params: filterParams } = resolver.getAgentFilterSql(agentName);
+      spans = db.prepare(`
+        SELECT s.* FROM atomic_spans s
+        WHERE s.conversation_id = ? AND ${filterSql}
+        ORDER BY s.created_at ASC, s.id ASC
+      `).all(id, ...filterParams);
     } else {
       spans = db.prepare(`
         SELECT * FROM atomic_spans

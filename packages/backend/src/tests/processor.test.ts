@@ -624,4 +624,106 @@ describe('Telemetry Processing Engine', () => {
     const spans = db.prepare('SELECT * FROM atomic_spans WHERE conversation_id = ?').all('stable-session-123');
     expect(spans.length).toBe(2);
   });
+
+  it('correctly handles Copilot CLI subagents through strategy-based TelemetryResolver', async () => {
+    db.prepare('DELETE FROM raw_telemetry').run();
+    db.prepare('DELETE FROM atomic_spans').run();
+    db.prepare('DELETE FROM conversations').run();
+
+    const payload = {
+      resourceSpans: [
+        {
+          resource: {
+            attributes: [
+              { key: 'service.name', value: { stringValue: 'github-copilot' } }
+            ]
+          },
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 'trace-copilot-cli-agent',
+                  spanId: 'cli-orchestrator-chat',
+                  name: 'chat models/gpt-4o',
+                  startTimeUnixNano: '1719619300000000000',
+                  attributes: [
+                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-cli-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gpt-4o' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 1000 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 500 } }
+                  ]
+                },
+                {
+                  traceId: 'trace-copilot-cli-agent',
+                  spanId: 'cli-invoke-subagent',
+                  name: 'invoke_agent cli-subagent',
+                  startTimeUnixNano: '1719619301000000000',
+                  attributes: [
+                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-cli-test' } },
+                    { key: 'gen_ai.agent.name', value: { stringValue: 'cli-subagent' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 300 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 150 } },
+                    { key: 'gen_ai.usage.reasoning.output_tokens', value: { intValue: 50 } }
+                  ]
+                },
+                {
+                  traceId: 'trace-copilot-cli-agent',
+                  spanId: 'cli-subagent-chat-child',
+                  name: 'chat models/gpt-4o',
+                  startTimeUnixNano: '1719619302000000000',
+                  parentSpanId: 'cli-invoke-subagent',
+                  attributes: [
+                    { key: 'gen_ai.conversation.id', value: { stringValue: 'conv-cli-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'models/gpt-4o' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 300 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 150 } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parsing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify stored agent names in DB: orchestrator should be null, subagent should be 'cli-subagent'
+    const orchestratorSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('cli-orchestrator-chat') as any;
+    expect(orchestratorSpan).toBeDefined();
+    expect(orchestratorSpan.agent_name).toBeNull();
+
+    const subagentSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('cli-invoke-subagent') as any;
+    expect(subagentSpan).toBeDefined();
+    expect(subagentSpan.agent_name).toBe('cli-subagent');
+    expect(subagentSpan.reasoning_tokens).toBe(50);
+
+    // Verify that the child chat span was discarded
+    const childSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('cli-subagent-chat-child');
+    expect(childSpan).toBeUndefined();
+
+    // Verify API format: GET /api/conversations should return agents with 'tool/runSubagent-' prefix
+    const listRes = await fetch(`${baseUrl}/api/conversations`);
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as any;
+    const convListItem = listBody.conversations.find((c: any) => c.id === 'conv-cli-test');
+    expect(convListItem).toBeDefined();
+    expect(convListItem.agents).toContain('tool/runSubagent-cli-subagent');
+
+    // Verify API filtering: GET /api/conversations/:id/spans?agent_name=tool/runSubagent-cli-subagent
+    const spansSubRes = await fetch(`${baseUrl}/api/conversations/conv-cli-test/spans?agent_name=tool/runSubagent-cli-subagent`);
+    expect(spansSubRes.status).toBe(200);
+    const spansSub = await spansSubRes.json() as any[];
+    expect(spansSub.length).toBe(1);
+    expect(spansSub[0].id).toBe('cli-invoke-subagent');
+  });
 });

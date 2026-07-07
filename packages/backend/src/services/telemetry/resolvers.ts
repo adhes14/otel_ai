@@ -29,6 +29,12 @@ export interface TelemetryResolver {
     traceSessionMap: Map<string, string>,
     subagentAliasMap: Map<string, string>
   ): ProcessableSpan[];
+
+  // Strategy methods for agent categorization & formatting
+  isSubagent(agentName: string): boolean;
+  cleanAgentNameForDb(agentName: string): string;
+  formatAgentNameForApi(agentName: string): string;
+  getAgentFilterSql(agentName: string): { sql: string; params: any[] };
 }
 
 function extractCreatedAt(span: any): number {
@@ -95,6 +101,32 @@ export class VSCodeTelemetryResolver implements TelemetryResolver {
 
   resolveReasoningTokenKey(): string {
     return 'gen_ai.usage.reasoning_tokens';
+  }
+
+  isSubagent(agentName: string): boolean {
+    return agentName.startsWith('tool/runSubagent-');
+  }
+
+  cleanAgentNameForDb(agentName: string): string {
+    return agentName;
+  }
+
+  formatAgentNameForApi(agentName: string): string {
+    return agentName;
+  }
+
+  getAgentFilterSql(agentName: string): { sql: string; params: any[] } {
+    if (this.isSubagent(agentName)) {
+      return {
+        sql: 's.agent_name = ?',
+        params: [agentName]
+      };
+    } else {
+      return {
+        sql: "(s.agent_name NOT LIKE 'tool/runSubagent-%' OR s.agent_name IS NULL)",
+        params: []
+      };
+    }
   }
 
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
@@ -174,6 +206,39 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
     return 'gen_ai.usage.reasoning.output_tokens';
   }
 
+  isSubagent(agentName: string): boolean {
+    return agentName.startsWith('tool/runSubagent-') || agentName !== '';
+  }
+
+  cleanAgentNameForDb(agentName: string): string {
+    if (agentName.startsWith('tool/runSubagent-')) {
+      return agentName.substring('tool/runSubagent-'.length);
+    }
+    return agentName;
+  }
+
+  formatAgentNameForApi(agentName: string): string {
+    if (agentName && !agentName.startsWith('tool/runSubagent-')) {
+      return `tool/runSubagent-${agentName}`;
+    }
+    return agentName;
+  }
+
+  getAgentFilterSql(agentName: string): { sql: string; params: any[] } {
+    if (this.isSubagent(agentName)) {
+      const dbAgentName = this.cleanAgentNameForDb(agentName);
+      return {
+        sql: 's.agent_name = ?',
+        params: [dbAgentName]
+      };
+    } else {
+      return {
+        sql: 's.agent_name IS NULL',
+        params: []
+      };
+    }
+  }
+
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
     // Copilot CLI does not need pre-scan since conversation_id is directly on each chat span.
   }
@@ -231,7 +296,9 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
 
 const RESOLVER_REGISTRY: Record<string, () => TelemetryResolver> = {
   'github-copilot': () => new CopilotCliTelemetryResolver(),
+  'copilot-cli': () => new CopilotCliTelemetryResolver(),
   'copilot-chat': () => new VSCodeTelemetryResolver(),
+  'vscode': () => new VSCodeTelemetryResolver(),
 };
 
 export function getTelemetryResolver(payload: any): TelemetryResolver {
@@ -254,4 +321,13 @@ export function getTelemetryResolver(payload: any): TelemetryResolver {
   }
   return new VSCodeTelemetryResolver();
 }
+
+export function getTelemetryResolverBySource(source: string): TelemetryResolver {
+  const creator = RESOLVER_REGISTRY[source];
+  if (creator) {
+    return creator();
+  }
+  return new VSCodeTelemetryResolver();
+}
+
 
