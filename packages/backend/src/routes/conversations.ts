@@ -62,7 +62,7 @@ router.get('/api/conversations', (req: Request, res: Response) => {
     const conversations = rows.map(row => {
       const resolver = getTelemetryResolverBySource(row.source);
       const rawAgents = row.agents ? row.agents.split(',').filter(Boolean) : [];
-      const agents = rawAgents.map((a: string) => resolver.formatAgentNameForApi(a));
+      const agents = resolver.getAgentsForApi(rawAgents);
       return {
         id: row.id,
         title: row.title,

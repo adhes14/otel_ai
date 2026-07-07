@@ -711,13 +711,14 @@ describe('Telemetry Processing Engine', () => {
     const childSpan = db.prepare('SELECT * FROM atomic_spans WHERE id = ?').get('cli-subagent-chat-child');
     expect(childSpan).toBeUndefined();
 
-    // Verify API format: GET /api/conversations should return agents with 'tool/runSubagent-' prefix
+    // Verify API format: GET /api/conversations should return agents with 'tool/runSubagent-' prefix and virtual 'orchestrator'
     const listRes = await fetch(`${baseUrl}/api/conversations`);
     expect(listRes.status).toBe(200);
     const listBody = await listRes.json() as any;
     const convListItem = listBody.conversations.find((c: any) => c.id === 'conv-cli-test');
     expect(convListItem).toBeDefined();
     expect(convListItem.agents).toContain('tool/runSubagent-cli-subagent');
+    expect(convListItem.agents).toContain('orchestrator');
 
     // Verify API filtering: GET /api/conversations/:id/spans?agent_name=tool/runSubagent-cli-subagent
     const spansSubRes = await fetch(`${baseUrl}/api/conversations/conv-cli-test/spans?agent_name=tool/runSubagent-cli-subagent`);
@@ -725,5 +726,12 @@ describe('Telemetry Processing Engine', () => {
     const spansSub = await spansSubRes.json() as any[];
     expect(spansSub.length).toBe(1);
     expect(spansSub[0].id).toBe('cli-invoke-subagent');
+
+    // Verify API filtering: GET /api/conversations/:id/spans?agent_name=orchestrator
+    const spansOrchRes = await fetch(`${baseUrl}/api/conversations/conv-cli-test/spans?agent_name=orchestrator`);
+    expect(spansOrchRes.status).toBe(200);
+    const spansOrch = await spansOrchRes.json() as any[];
+    expect(spansOrch.length).toBe(1);
+    expect(spansOrch[0].id).toBe('cli-orchestrator-chat');
   });
 });

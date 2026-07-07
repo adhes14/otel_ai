@@ -35,6 +35,7 @@ export interface TelemetryResolver {
   cleanAgentNameForDb(agentName: string): string;
   formatAgentNameForApi(agentName: string): string;
   getAgentFilterSql(agentName: string): { sql: string; params: any[] };
+  getAgentsForApi(agentsFromDb: string[]): string[];
 }
 
 function extractCreatedAt(span: any): number {
@@ -129,6 +130,10 @@ export class VSCodeTelemetryResolver implements TelemetryResolver {
     }
   }
 
+  getAgentsForApi(agentsFromDb: string[]): string[] {
+    return agentsFromDb;
+  }
+
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
     for (const span of spans) {
       const traceId = span.traceId;
@@ -207,6 +212,7 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
   }
 
   isSubagent(agentName: string): boolean {
+    if (agentName === 'orchestrator') return false;
     return agentName.startsWith('tool/runSubagent-') || agentName !== '';
   }
 
@@ -237,6 +243,14 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
         params: []
       };
     }
+  }
+
+  getAgentsForApi(agentsFromDb: string[]): string[] {
+    const formatted = agentsFromDb.map(a => this.formatAgentNameForApi(a));
+    if (formatted.length > 0) {
+      formatted.push('orchestrator');
+    }
+    return formatted;
   }
 
   preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
