@@ -40,3 +40,41 @@ export function extractPromptFromRequest(userReqStr: string): string | null {
   }
   return prompt || null;
 }
+
+export function extractPromptFromOpencode(promptMessagesStr: string): string | null {
+  if (!promptMessagesStr) return null;
+  try {
+    const messages = JSON.parse(promptMessagesStr);
+    if (Array.isArray(messages)) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg && msg.role === 'user') {
+          let text = '';
+          if (typeof msg.content === 'string') {
+            text = msg.content;
+          } else if (Array.isArray(msg.content)) {
+            const textPart = msg.content.find((p: any) => p && typeof p.text === 'string');
+            if (textPart) {
+              text = textPart.text;
+            }
+          }
+          
+          let cleaned = text
+            .replace(/\\n/g, ' ')
+            .replace(/[\r\n\t]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          if (cleaned.length > 60) {
+            cleaned = cleaned.slice(0, 57) + '...';
+          }
+          return cleaned || null;
+        }
+      }
+    }
+  } catch (err) {
+    // Fail silently
+  }
+  return null;
+}
+

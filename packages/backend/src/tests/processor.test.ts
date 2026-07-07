@@ -734,4 +734,98 @@ describe('Telemetry Processing Engine', () => {
     expect(spansOrch.length).toBe(1);
     expect(spansOrch[0].id).toBe('cli-orchestrator-chat');
   });
+
+  it('correctly processes opencode trace payload, parses ai.streamText, extracts generated title, and drops title/doStream spans', async () => {
+    db.prepare('DELETE FROM raw_telemetry').run();
+    db.prepare('DELETE FROM atomic_spans').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM model_costs WHERE model_name = ?').run('opencode-model');
+
+    const payload = {
+      resourceSpans: [
+        {
+          resource: {
+            attributes: [
+              { key: 'service.name', value: { stringValue: 'opencode' } }
+            ]
+          },
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  spanId: 'opencode-chat-span',
+                  name: 'ai.streamText',
+                  startTimeUnixNano: '1719619400000000000',
+                  attributes: [
+                    { key: 'session.id', value: { stringValue: 'conv-opencode-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'opencode-model' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 500 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 50 } },
+                    { key: 'ai.usage.inputTokenDetails.cacheReadTokens', value: { intValue: 100 } },
+                    { key: 'ai.usage.reasoningTokens', value: { intValue: 10 } },
+                    { key: 'ai.prompt.messages', value: { stringValue: '[{"role":"user","content":[{"type":"text","text":"Show files"}]}]' } }
+                  ]
+                },
+                {
+                  spanId: 'opencode-chat-child-stream',
+                  name: 'ai.streamText.doStream',
+                  parentSpanId: 'opencode-chat-span',
+                  startTimeUnixNano: '1719619400100000000',
+                  attributes: [
+                    { key: 'session.id', value: { stringValue: 'conv-opencode-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'opencode-model' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 500 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 50 } }
+                  ]
+                },
+                {
+                  spanId: 'opencode-title-span',
+                  name: 'ai.streamText',
+                  startTimeUnixNano: '1719619401000000000',
+                  attributes: [
+                    { key: 'session.id', value: { stringValue: 'conv-opencode-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'opencode-model' } },
+                    { key: 'ai.prompt.messages', value: { stringValue: '[{"role":"system","content":"You are a title generator."}]' } },
+                    { key: 'ai.response.text', value: { stringValue: 'Show Files Title' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 80 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 10 } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parser
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // 1. Verify conversation was created and has the generated title (Option A)
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-opencode-test') as any;
+    expect(conversation).toBeDefined();
+    expect(conversation.source).toBe('opencode');
+    expect(conversation.title).toBe('Show Files Title');
+
+    // 2. Verify that only the main chat span was persisted as an atomic span
+    const atomicSpans = db.prepare('SELECT * FROM atomic_spans WHERE conversation_id = ?').all('conv-opencode-test');
+    expect(atomicSpans.length).toBe(1);
+
+    const span = atomicSpans[0] as any;
+    expect(span.id).toBe('opencode-chat-span');
+    expect(span.model_name).toBe('opencode-model');
+    expect(span.input_tokens).toBe(500);
+    expect(span.output_tokens).toBe(50);
+    expect(span.cache_read_tokens).toBe(100);
+    expect(span.reasoning_tokens).toBe(10);
+    expect(span.agent_name).toBeNull();
+  });
 });

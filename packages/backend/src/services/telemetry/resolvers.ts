@@ -1,4 +1,4 @@
-import { findAttribute, getAttributeValue, extractPromptFromRequest } from './helpers.js';
+import { findAttribute, getAttributeValue, extractPromptFromRequest, extractPromptFromOpencode } from './helpers.js';
 import logger from '../../utils/logger.js';
 
 export interface ProcessableSpan {
@@ -308,11 +308,180 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
   }
 }
 
+function isTitleGeneratorSpan(span: any): boolean {
+  if (span.name !== 'ai.streamText') return false;
+  const prompt = findAttribute(span.attributes, 'ai.prompt') ||
+                 findAttribute(span.attributes, 'ai.prompt.messages');
+  if (typeof prompt === 'string') {
+    return prompt.includes('title generator') || prompt.includes('thread title');
+  }
+  return false;
+}
+
+export class OpencodeTelemetryResolver implements TelemetryResolver {
+  resolveSource(): string {
+    return 'opencode';
+  }
+
+  resolveReasoningTokenKey(): string {
+    return 'ai.usage.reasoningTokens';
+  }
+
+  isSubagent(agentName: string): boolean {
+    return false;
+  }
+
+  cleanAgentNameForDb(agentName: string): string {
+    return agentName;
+  }
+
+  formatAgentNameForApi(agentName: string): string {
+    return agentName;
+  }
+
+  getAgentFilterSql(agentName: string): { sql: string; params: any[] } {
+    return {
+      sql: 's.agent_name IS NULL',
+      params: []
+    };
+  }
+
+  getAgentsForApi(agentsFromDb: string[]): string[] {
+    return agentsFromDb;
+  }
+
+  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
+    for (const span of spans) {
+      if (span.traceId) {
+        const conversationId = findAttribute(span.attributes, 'session.id') ||
+                               findAttribute(span.attributes, 'ai.telemetry.metadata.sessionId') ||
+                               findAttribute(span.attributes, 'ai.request.headers.x-opencode-session');
+        if (conversationId) {
+          traceSessionMap.set(span.traceId, conversationId);
+        }
+      }
+    }
+  }
+
+  resolveConversationId(
+    span: any,
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): string | null {
+    let conversationId = findAttribute(span.attributes, 'session.id') ||
+                         findAttribute(span.attributes, 'ai.telemetry.metadata.sessionId') ||
+                         findAttribute(span.attributes, 'ai.request.headers.x-opencode-session');
+    
+    if (!conversationId && span.traceId) {
+      conversationId = traceSessionMap.get(span.traceId);
+    }
+    
+    return conversationId || null;
+  }
+
+  resolveSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>
+  ): ProcessableSpan[] {
+    const result: ProcessableSpan[] = [];
+
+    // 1. Detect if there is a generated title span
+    let generatedTitle: string | null = null;
+    for (const span of spans) {
+      if (isTitleGeneratorSpan(span)) {
+        const titleText = findAttribute(span.attributes, 'ai.response.text');
+        if (typeof titleText === 'string' && titleText.trim()) {
+          generatedTitle = titleText.trim();
+        }
+        break;
+      }
+    }
+
+    // 2. Map the main streamText spans
+    for (const span of spans) {
+      if (span.name !== 'ai.streamText') {
+        continue;
+      }
+      // Skip the title generator span itself (Option A)
+      if (isTitleGeneratorSpan(span)) {
+        continue;
+      }
+
+      const conversationId = this.resolveConversationId(span, traceSessionMap, subagentAliasMap);
+      if (!conversationId) {
+        continue;
+      }
+
+      const spanId = span.spanId || span.span_id || `gen-${Math.random().toString(36).substring(2, 11)}`;
+      const modelName = findAttribute(span.attributes, 'gen_ai.response.model') || 
+                        findAttribute(span.attributes, 'gen_ai.request.model') || 
+                        findAttribute(span.attributes, 'ai.model.id') ||
+                        'unknown-model';
+      
+      const agentName = null;
+
+      const inputTokens = Number(
+        findAttribute(span.attributes, 'gen_ai.usage.input_tokens') ?? 
+        findAttribute(span.attributes, 'ai.usage.inputTokens') ?? 
+        0
+      );
+      const outputTokens = Number(
+        findAttribute(span.attributes, 'gen_ai.usage.output_tokens') ?? 
+        findAttribute(span.attributes, 'ai.usage.outputTokens') ?? 
+        0
+      );
+      const cacheReadTokens = Number(
+        findAttribute(span.attributes, 'ai.usage.inputTokenDetails.cacheReadTokens') ?? 
+        findAttribute(span.attributes, 'ai.usage.cachedInputTokens') ?? 
+        findAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens') ?? 
+        0
+      );
+      const cacheWriteTokens = Number(
+        findAttribute(span.attributes, 'gen_ai.usage.cache_creation.input_tokens') ?? 
+        0
+      );
+      const reasoningTokens = Number(
+        findAttribute(span.attributes, 'ai.usage.reasoningTokens') ?? 
+        findAttribute(span.attributes, 'ai.usage.outputTokenDetails.reasoningTokens') ?? 
+        0
+      );
+
+      let fallbackTitle = generatedTitle;
+      if (!fallbackTitle) {
+        const promptMessages = findAttribute(span.attributes, 'ai.prompt.messages');
+        if (typeof promptMessages === 'string') {
+          fallbackTitle = extractPromptFromOpencode(promptMessages);
+        }
+      }
+
+      const createdAt = extractCreatedAt(span);
+
+      result.push({
+        conversationId,
+        spanId,
+        modelName,
+        agentName,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+        reasoningTokens,
+        createdAt,
+        fallbackTitle
+      });
+    }
+
+    return result;
+  }
+}
+
 const RESOLVER_REGISTRY: Record<string, () => TelemetryResolver> = {
   'github-copilot': () => new CopilotCliTelemetryResolver(),
   'copilot-cli': () => new CopilotCliTelemetryResolver(),
   'copilot-chat': () => new VSCodeTelemetryResolver(),
   'vscode': () => new VSCodeTelemetryResolver(),
+  'opencode': () => new OpencodeTelemetryResolver(),
 };
 
 export function getTelemetryResolver(payload: any): TelemetryResolver {
