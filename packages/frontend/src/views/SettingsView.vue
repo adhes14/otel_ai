@@ -19,6 +19,28 @@ const successMessage = ref<string | null>(null);
 const reprocessing = ref(false);
 const showReprocessConfirmModal = ref(false);
 
+const showNoTokensConfirmModal = ref(false);
+const clearingNoTokens = ref(false);
+
+const handleClearNoTokens = async () => {
+  clearingNoTokens.value = true;
+  successMessage.value = null;
+  error.value = null;
+  try {
+    const response = await api.clearNoTokensTelemetry();
+    dbStat.value = {
+      size_bytes: response.size_bytes,
+      size_mb: response.size_mb
+    };
+    successMessage.value = `Successfully cleaned telemetry without token consumption: deleted ${response.deleted_raw_count} raw trace(s), ${response.deleted_spans_count} span(s), and ${response.deleted_conversations_count} empty conversation(s).`;
+    showNoTokensConfirmModal.value = false;
+  } catch (err: any) {
+    error.value = err.message || 'Failed to clear telemetry without tokens';
+  } finally {
+    clearingNoTokens.value = false;
+  }
+};
+
 const handleReprocess = async () => {
   reprocessing.value = true;
   successMessage.value = null;
@@ -150,6 +172,26 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Clear Empty Telemetry Card -->
+      <div class="settings-card warning-card">
+        <div class="card-header">
+          <h3>🧹 Telemetry Without Tokens Cleanup</h3>
+        </div>
+
+        <div class="purge-form">
+          <p class="reprocess-warning-text">
+            Clean up and delete all historical raw telemetry records, atomic spans, and empty conversations that have no token consumption.
+          </p>
+          <button class="purge-btn" @click="showNoTokensConfirmModal = true">
+            🗑️ Clean Up Telemetry Without Tokens
+          </button>
+        </div>
+
+        <div class="card-footer-info">
+          <p><strong>Note:</strong> This will clean up the <code>raw_telemetry</code>, <code>atomic_spans</code>, and <code>conversations</code> tables to eliminate entries that have 0 token usage (input tokens <= 0).</p>
+        </div>
+      </div>
+
       <!-- Regenerate Conversations Card -->
       <div class="settings-card warning-card">
         <div class="card-header">
@@ -212,6 +254,29 @@ onMounted(() => {
           </button>
           <button class="confirm-btn" @click="handleReprocess" :disabled="reprocessing">
             {{ reprocessing ? 'Rebuilding...' : 'Yes, Rebuild Now' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Clear No Tokens Confirmation Modal -->
+    <div v-if="showNoTokensConfirmModal" class="modal-overlay">
+      <div class="modal-content danger-modal fade-in">
+        <div class="modal-header">
+          <h2>⚠️ Confirm Empty Telemetry Cleanup</h2>
+        </div>
+        <div class="modal-body">
+          <p>You are about to delete all raw telemetries, processed spans, and conversations that do not have token consumption information.</p>
+          <div class="warning-box">
+            <p><strong>Warning:</strong> This operation is permanent and cannot be undone. SQLite will execute a <code>VACUUM</code> after deletion, which may take a few seconds.</p>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="cancel-btn" @click="showNoTokensConfirmModal = false" :disabled="clearingNoTokens">
+            Cancel
+          </button>
+          <button class="confirm-btn" @click="handleClearNoTokens" :disabled="clearingNoTokens">
+            {{ clearingNoTokens ? 'Clearing & Vacuuming...' : 'Yes, Delete Permanently' }}
           </button>
         </div>
       </div>

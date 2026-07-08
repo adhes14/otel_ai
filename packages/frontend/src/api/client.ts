@@ -186,6 +186,18 @@ export const api = {
     );
   },
 
+  clearNoTokensTelemetry: () => {
+    return request<{
+      deleted_raw_count: number;
+      deleted_spans_count: number;
+      deleted_conversations_count: number;
+      size_bytes: number;
+      size_mb: number;
+    }>('/api/maintenance/clear-no-tokens', {
+      method: 'DELETE',
+    });
+  },
+
   reprocessTelemetry: () => {
     return request<{ status: string; message: string }>('/api/maintenance/reprocess', {
       method: 'POST',

@@ -47,7 +47,7 @@ router.delete('/api/maintenance/raw-telemetry', (req: Request, res: Response) =>
     if (dbPath !== ':memory:') {
       try {
         db.pragma('wal_checkpoint(TRUNCATE)');
-        db.pragma('vacuum');
+        db.exec('VACUUM');
       } catch (pragmaErr) {
         logger.warn({ pragmaErr }, 'Failed to vacuum/checkpoint database, continuing');
       }
@@ -61,6 +61,61 @@ router.delete('/api/maintenance/raw-telemetry', (req: Request, res: Response) =>
     });
   } catch (err) {
     logger.error({ err }, 'Failed to purge raw telemetry');
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// DELETE /api/maintenance/clear-no-tokens
+router.delete('/api/maintenance/clear-no-tokens', (req: Request, res: Response) => {
+  try {
+    let deletedSpans = 0;
+    let deletedRaw = 0;
+    let deletedConversations = 0;
+
+    db.transaction(() => {
+      // 1. Delete spans that have no input tokens
+      deletedSpans = db.prepare('DELETE FROM atomic_spans WHERE input_tokens <= 0').run().changes;
+
+      // 2. Delete raw telemetries that do not have any associated spans with input_tokens > 0
+      deletedRaw = db.prepare(`
+        DELETE FROM raw_telemetry
+        WHERE id NOT IN (
+          SELECT DISTINCT raw_telemetry_id
+          FROM atomic_spans
+          WHERE raw_telemetry_id IS NOT NULL AND input_tokens > 0
+        )
+      `).run().changes;
+
+      // 3. Delete conversations that have no spans left
+      deletedConversations = db.prepare(`
+        DELETE FROM conversations
+        WHERE id NOT IN (
+          SELECT DISTINCT conversation_id
+          FROM atomic_spans
+        )
+      `).run().changes;
+    })();
+
+    // Checkpoint WAL and VACUUM to reclaim disk space
+    if (dbPath !== ':memory:') {
+      try {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+        db.exec('VACUUM');
+      } catch (pragmaErr) {
+        logger.warn({ pragmaErr }, 'Failed to vacuum/checkpoint database, continuing');
+      }
+    }
+
+    const newStats = getDbSize();
+
+    return res.status(200).json({
+      deleted_raw_count: deletedRaw,
+      deleted_spans_count: deletedSpans,
+      deleted_conversations_count: deletedConversations,
+      ...newStats
+    });
+  } catch (err) {
+    logger.error({ err }, 'Failed to clear no-token telemetry');
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
