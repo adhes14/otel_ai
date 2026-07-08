@@ -78,3 +78,22 @@ export function extractPromptFromOpencode(promptMessagesStr: string): string | n
   return null;
 }
 
+export function extractTitleFromVSCodeOutput(outputMsgsStr: string): string | null {
+  if (!outputMsgsStr) return null;
+  try {
+    const messages = JSON.parse(outputMsgsStr);
+    if (Array.isArray(messages)) {
+      const assistantMsg = messages.find(m => m && m.role === 'assistant');
+      if (assistantMsg && Array.isArray(assistantMsg.parts)) {
+        const textPart = assistantMsg.parts.find((p: any) => p && p.type === 'text' && typeof p.content === 'string');
+        if (textPart) {
+          return textPart.content.trim();
+        }
+      }
+    }
+  } catch (err) {
+    // Fail silently
+  }
+  return null;
+}
+

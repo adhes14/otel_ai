@@ -828,4 +828,75 @@ describe('Telemetry Processing Engine', () => {
     expect(span.reasoning_tokens).toBe(10);
     expect(span.agent_name).toBeNull();
   });
+
+  it('correctly processes vscode trace payload, parses chat spans, extracts generated title, and drops title generator spans', async () => {
+    db.prepare('DELETE FROM raw_telemetry').run();
+    db.prepare('DELETE FROM atomic_spans').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM model_costs WHERE model_name = ?').run('vscode-test-model');
+
+    const payload = {
+      resourceSpans: [
+        {
+          resource: {
+            attributes: [
+              { key: 'service.name', value: { stringValue: 'vscode' } }
+            ]
+          },
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  spanId: 'vscode-chat-span',
+                  name: 'chat vscode-model',
+                  startTimeUnixNano: '1719619400000000000',
+                  attributes: [
+                    { key: 'copilot_chat.session_id', value: { stringValue: 'conv-vscode-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'vscode-test-model' } },
+                    { key: 'gen_ai.usage.input_tokens', value: { intValue: 300 } },
+                    { key: 'gen_ai.usage.output_tokens', value: { intValue: 30 } },
+                    { key: 'copilot_chat.user_request', value: { stringValue: 'Original User Request' } }
+                  ]
+                },
+                {
+                  spanId: 'vscode-title-span',
+                  name: 'chat gpt-4o-mini-2024-07-18',
+                  startTimeUnixNano: '1719619401000000000',
+                  attributes: [
+                    { key: 'copilot_chat.session_id', value: { stringValue: 'conv-vscode-test' } },
+                    { key: 'gen_ai.response.model', value: { stringValue: 'gpt-4o-mini-2024-07-18' } },
+                    { key: 'gen_ai.system_instructions', value: { stringValue: '[{"type":"text","content":"You are an expert in crafting ultra-compact titles for chatbot conversations..."}]' } },
+                    { key: 'gen_ai.output.messages', value: { stringValue: '[{"role":"assistant","parts":[{"type":"text","content":"Generated VSCode Title"}]}]' } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch(`${baseUrl}/v1/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    expect(res.status).toBe(200);
+
+    // Wait for background parser
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify conversation was created and has the generated title
+    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get('conv-vscode-test') as any;
+    expect(conversation).toBeDefined();
+    expect(conversation.source).toBe('vscode');
+    expect(conversation.title).toBe('Generated VSCode Title');
+
+    // Verify that only the main chat span was persisted, and the title span was dropped
+    const atomicSpans = db.prepare('SELECT * FROM atomic_spans WHERE conversation_id = ?').all('conv-vscode-test') as any[];
+    expect(atomicSpans.length).toBe(1);
+    expect(atomicSpans[0].id).toBe('vscode-chat-span');
+  });
 });
+

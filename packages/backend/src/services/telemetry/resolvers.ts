@@ -1,4 +1,4 @@
-import { findAttribute, getAttributeValue, extractPromptFromRequest, extractPromptFromOpencode } from './helpers.js';
+import { findAttribute, getAttributeValue, extractPromptFromRequest, extractPromptFromOpencode, extractTitleFromVSCodeOutput } from './helpers.js';
 import logger from '../../utils/logger.js';
 
 export interface ProcessableSpan {
@@ -199,16 +199,34 @@ export class VSCodeTelemetryResolver implements TelemetryResolver {
     subagentAliasMap: Map<string, string>,
     _subagentNameMap: Map<string, string>
   ): ProcessableSpan[] {
+    let generatedTitle: string | null = null;
+    for (const span of spans) {
+      if (isVSCodeTitleGeneratorSpan(span)) {
+        const outputMsgs = findAttribute(span.attributes, 'gen_ai.output.messages');
+        if (typeof outputMsgs === 'string') {
+          generatedTitle = extractTitleFromVSCodeOutput(outputMsgs);
+        }
+        break;
+      }
+    }
+
     const result: ProcessableSpan[] = [];
     for (const span of spans) {
       if (span.name !== 'chat' && !span.name.startsWith('chat ')) {
+        continue;
+      }
+      if (isVSCodeTitleGeneratorSpan(span)) {
         continue;
       }
       const conversationId = this.resolveConversationId(span, traceSessionMap, subagentAliasMap);
       if (!conversationId) {
         continue;
       }
-      result.push(mapSpanToProcessable(span, this, conversationId));
+      const pSpan = mapSpanToProcessable(span, this, conversationId);
+      if (generatedTitle) {
+        pSpan.fallbackTitle = generatedTitle;
+      }
+      result.push(pSpan);
     }
     return result;
   }
@@ -335,6 +353,16 @@ function isTitleGeneratorSpan(span: any): boolean {
   }
   return false;
 }
+
+function isVSCodeTitleGeneratorSpan(span: any): boolean {
+  if (span.name !== 'chat' && !span.name?.startsWith('chat ')) return false;
+  const sysInstr = findAttribute(span.attributes, 'gen_ai.system_instructions');
+  if (typeof sysInstr === 'string') {
+    return sysInstr.includes('ultra-compact titles') || sysInstr.includes('thread title') || sysInstr.includes('title generator');
+  }
+  return false;
+}
+
 
 export class OpencodeTelemetryResolver implements TelemetryResolver {
   resolveSource(): string {
