@@ -18,7 +18,12 @@ export interface ProcessableSpan {
 export interface TelemetryResolver {
   resolveSource(): string;
   resolveReasoningTokenKey(): string;
-  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void;
+  preScanSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>,
+    subagentNameMap: Map<string, string>
+  ): void;
   resolveConversationId(
     span: any,
     traceSessionMap: Map<string, string>,
@@ -27,7 +32,8 @@ export interface TelemetryResolver {
   resolveSpans(
     spans: any[],
     traceSessionMap: Map<string, string>,
-    subagentAliasMap: Map<string, string>
+    subagentAliasMap: Map<string, string>,
+    subagentNameMap: Map<string, string>
   ): ProcessableSpan[];
 
   // Strategy methods for agent categorization & formatting
@@ -134,7 +140,12 @@ export class VSCodeTelemetryResolver implements TelemetryResolver {
     return agentsFromDb;
   }
 
-  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
+  preScanSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>,
+    _subagentNameMap: Map<string, string>
+  ): void {
     for (const span of spans) {
       const traceId = span.traceId;
       if (!traceId) continue;
@@ -185,7 +196,8 @@ export class VSCodeTelemetryResolver implements TelemetryResolver {
   resolveSpans(
     spans: any[],
     traceSessionMap: Map<string, string>,
-    subagentAliasMap: Map<string, string>
+    subagentAliasMap: Map<string, string>,
+    _subagentNameMap: Map<string, string>
   ): ProcessableSpan[] {
     const result: ProcessableSpan[] = [];
     for (const span of spans) {
@@ -253,7 +265,12 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
     return formatted;
   }
 
-  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
+  preScanSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>,
+    _subagentNameMap: Map<string, string>
+  ): void {
     // Copilot CLI does not need pre-scan since conversation_id is directly on each chat span.
   }
 
@@ -268,7 +285,8 @@ export class CopilotCliTelemetryResolver implements TelemetryResolver {
   resolveSpans(
     spans: any[],
     traceSessionMap: Map<string, string>,
-    subagentAliasMap: Map<string, string>
+    subagentAliasMap: Map<string, string>,
+    _subagentNameMap: Map<string, string>
   ): ProcessableSpan[] {
     const result: ProcessableSpan[] = [];
     
@@ -328,29 +346,53 @@ export class OpencodeTelemetryResolver implements TelemetryResolver {
   }
 
   isSubagent(agentName: string): boolean {
-    return false;
+    if (agentName === 'orchestrator') return false;
+    return agentName.startsWith('tool/runSubagent-') || agentName !== '';
   }
 
   cleanAgentNameForDb(agentName: string): string {
+    if (agentName.startsWith('tool/runSubagent-')) {
+      return agentName.substring('tool/runSubagent-'.length);
+    }
     return agentName;
   }
 
   formatAgentNameForApi(agentName: string): string {
+    if (agentName && !agentName.startsWith('tool/runSubagent-')) {
+      return `tool/runSubagent-${agentName}`;
+    }
     return agentName;
   }
 
   getAgentFilterSql(agentName: string): { sql: string; params: any[] } {
-    return {
-      sql: 's.agent_name IS NULL',
-      params: []
-    };
+    if (this.isSubagent(agentName)) {
+      const dbAgentName = this.cleanAgentNameForDb(agentName);
+      return {
+        sql: 's.agent_name = ?',
+        params: [dbAgentName]
+      };
+    } else {
+      return {
+        sql: 's.agent_name IS NULL',
+        params: []
+      };
+    }
   }
 
   getAgentsForApi(agentsFromDb: string[]): string[] {
-    return agentsFromDb;
+    const formatted = agentsFromDb.map(a => this.formatAgentNameForApi(a));
+    if (formatted.length > 0) {
+      formatted.push('orchestrator');
+    }
+    return formatted;
   }
 
-  preScanSpans(spans: any[], traceSessionMap: Map<string, string>, subagentAliasMap: Map<string, string>): void {
+  preScanSpans(
+    spans: any[],
+    traceSessionMap: Map<string, string>,
+    subagentAliasMap: Map<string, string>,
+    subagentNameMap: Map<string, string>
+  ): void {
     for (const span of spans) {
       if (span.traceId) {
         const conversationId = findAttribute(span.attributes, 'session.id') ||
@@ -358,6 +400,32 @@ export class OpencodeTelemetryResolver implements TelemetryResolver {
                                findAttribute(span.attributes, 'ai.request.headers.x-opencode-session');
         if (conversationId) {
           traceSessionMap.set(span.traceId, conversationId);
+        }
+      }
+
+      // Detect subagent calls to map parent-child sessions and names
+      if (span.name === 'ai.toolCall') {
+        const toolName = findAttribute(span.attributes, 'ai.toolCall.name');
+        if (toolName === 'task') {
+          const argsRaw = findAttribute(span.attributes, 'ai.toolCall.args');
+          const resultRaw = findAttribute(span.attributes, 'ai.toolCall.result');
+          if (argsRaw && resultRaw) {
+            try {
+              const args = JSON.parse(argsRaw);
+              const result = JSON.parse(resultRaw);
+              const parentSessionId = result?.metadata?.parentSessionId;
+              const childSessionId = result?.metadata?.sessionId;
+              const subagentType = args?.subagent_type;
+              if (parentSessionId && childSessionId) {
+                subagentAliasMap.set(childSessionId, parentSessionId);
+                if (subagentType) {
+                  subagentNameMap.set(childSessionId, subagentType);
+                }
+              }
+            } catch (err) {
+              // Ignore JSON parse errors
+            }
+          }
         }
       }
     }
@@ -375,6 +443,10 @@ export class OpencodeTelemetryResolver implements TelemetryResolver {
     if (!conversationId && span.traceId) {
       conversationId = traceSessionMap.get(span.traceId);
     }
+
+    if (conversationId && subagentAliasMap.has(conversationId)) {
+      conversationId = subagentAliasMap.get(conversationId);
+    }
     
     return conversationId || null;
   }
@@ -382,7 +454,8 @@ export class OpencodeTelemetryResolver implements TelemetryResolver {
   resolveSpans(
     spans: any[],
     traceSessionMap: Map<string, string>,
-    subagentAliasMap: Map<string, string>
+    subagentAliasMap: Map<string, string>,
+    subagentNameMap: Map<string, string>
   ): ProcessableSpan[] {
     const result: ProcessableSpan[] = [];
 
@@ -419,7 +492,10 @@ export class OpencodeTelemetryResolver implements TelemetryResolver {
                         findAttribute(span.attributes, 'ai.model.id') ||
                         'unknown-model';
       
-      const agentName = null;
+      const rawSessionId = findAttribute(span.attributes, 'session.id') ||
+                           findAttribute(span.attributes, 'ai.telemetry.metadata.sessionId') ||
+                           findAttribute(span.attributes, 'ai.request.headers.x-opencode-session');
+      const agentName = rawSessionId ? (subagentNameMap.get(rawSessionId) ?? null) : null;
 
       const inputTokens = Number(
         findAttribute(span.attributes, 'gen_ai.usage.input_tokens') ?? 

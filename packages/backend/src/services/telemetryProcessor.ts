@@ -24,12 +24,13 @@ export function processTelemetry(rawId: number, rawPayload: string | object) {
       const resolver = getTelemetryResolver(payload);
       const source = resolver.resolveSource();
 
-      // Pre-scan all spans to build a map of traceId -> chatSessionId and subagentAliasMap
+      // Pre-scan all spans to build a map of traceId -> chatSessionId, subagentAliasMap and subagentNameMap
       const traceSessionMap = new Map<string, string>();
       const subagentAliasMap = new Map<string, string>();
-      resolver.preScanSpans(spans, traceSessionMap, subagentAliasMap);
+      const subagentNameMap = new Map<string, string>();
+      resolver.preScanSpans(spans, traceSessionMap, subagentAliasMap, subagentNameMap);
 
-      const processableSpans = resolver.resolveSpans(spans, traceSessionMap, subagentAliasMap);
+      const processableSpans = resolver.resolveSpans(spans, traceSessionMap, subagentAliasMap, subagentNameMap);
 
       for (const pSpan of processableSpans) {
         // 1. Model Auto-Discovery: Hot insertion of model costs at $0.00
