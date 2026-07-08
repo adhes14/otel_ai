@@ -4,7 +4,7 @@
 
 ## 1. Product Overview
 
-The goal of this system is to locally intercept, persist, and analyze telemetry metrics emitted by **VS Code Copilot Chat**. The system will act as an autonomous OTLP/HTTP collector to accurately process token usage and costs (broken down by model) for both standard and complex (multi-agent) interactions.
+The goal of this system is to locally intercept, persist, and analyze telemetry metrics emitted by **VS Code Copilot Chat**, **Copilot CLI**, and **Opencode**. The system acts as an autonomous OTLP/HTTP collector to accurately process token usage and costs (broken down by model) for both standard and complex (multi-agent) interactions.
 
 ### 💻 Selected Tech Stack
 
@@ -24,30 +24,49 @@ The system will operate in a **100% local, single-user** manner, running on the 
 * Expose a `POST /v1/traces` endpoint running on OpenTelemetry's default local port (`4318`).
 * Configure a **50MB** payload limit on Express middleware to prevent crashes caused by large source code capture payloads.
 
-### 🗄️ Two-Layer Storage Strategy (SQLite)
+### 🗄️ Database Schema (SQLite)
 
-To shield the system against schema changes in VS Code and guarantee performance, the database will be structured as follows:
+To shield the system against schema changes and guarantee performance, the database is structured as follows:
 
 1. **Raw Telemetry Table (`raw_telemetry`):**
    * Stores the complete JSON payload exactly as received from the OTLP protocol.
-   * Fields: `id` (Autoincrement), `conversation_id` (Nullable initially), `payload` (TEXT/JSON), `created_at` (Timestamp).
+   * Fields: `id` (Autoincrement), `conversation_id` (TEXT, Nullable), `payload` (TEXT/JSON), `created_at` (Timestamp/Integer).
 
 2. **Processed Tables (Relaxed Relational Schema):**
-   * `conversations`: Stores the unique VS Code chat session identifier (`copilot_chat.chat_session_id`) and aggregated session metadata.
-   * `atomic_spans`: Stores flat records of AI execution nodes that contain token metrics.
+   * `conversations`: Stores unique session identifiers, title, source, first and last seen timestamps.
+     * Fields: `id` (PK, TEXT), `title` (TEXT, Nullable), `first_seen_at` (INTEGER), `last_seen_at` (INTEGER), `source` (TEXT, e.g., `'vscode'`, `'copilot-cli'`, `'opencode'`).
+   * `atomic_spans`: Stores flat records of AI execution nodes containing token metrics.
+     * Fields: `id` (PK, TEXT), `conversation_id` (TEXT, FK), `model_name` (TEXT, FK), `agent_name` (TEXT, Nullable), `raw_telemetry_id` (INTEGER, Nullable), `input_tokens` (INTEGER), `output_tokens` (INTEGER), `cache_read_tokens` (INTEGER), `cache_write_tokens` (INTEGER), `reasoning_tokens` (INTEGER), `created_at` (INTEGER).
 
 ---
 
 ## 3. Processing Logic and Calculation Engine (Core)
 
-The analytical engine in the backend will avoid reconstructing complex hierarchical or parent-child orchestration trees (thereby preventing double-counting in nested subagent calls).
+The analytical engine in the backend avoids reconstructing complex hierarchical or parent-child orchestration trees. Instead, it delegates trace parsing to source-specific telemetry resolvers.
 
-### 🧠 Flat Extraction Algorithm (Safe Strategy)
+### 🔌 Telemetry Resolvers Architecture
 
-* **Root Filter:** The parser will traverse the flat structure of the spans, ignoring intermediate nodes such as `execute_tool` or utility events. The engine will target leaf nodes representing LLM interactions where the span name starts with `"chat"`.
-* **Attribute Mapping & Grouping:** From each `"chat"` node, it will extract usage metrics and group them into conversations:
-  * **Grouping Key:** Uses `copilot_chat.chat_session_id` (or `copilot_chat.session_id`) to group turns of the same chat session. If a custom model span is missing this attribute, it falls back to resolving the session ID from other spans sharing the same `traceId` (such as the parent `invoke_agent` span). Spans without any session ID (such as internal system agent calls) are skipped.
-  * **Usage Metrics:** Extracts `input_tokens`, `output_tokens`, `cache_read_tokens` (or equivalent cache telemetry), and `reasoning_tokens`.
+The parser maps OTel traces based on the `service.name` resource attribute to one of the following resolvers:
+
+1. **`VSCodeTelemetryResolver` (`copilot-chat` / `vscode`):**
+   * Targets leaf nodes where the span name starts with `"chat"`.
+   * Maps parent-child session IDs using session aliasing to attribute subagent spans to their orchestrator session.
+   * Extracts input, output, cache read, cache write, and reasoning tokens.
+
+2. **`CopilotCliTelemetryResolver` (`github-copilot` / `copilot-cli`):**
+   * Targets `chat` spans and non-nested `invoke_agent` spans to prevent double-counting.
+   * Performs agent/subagent classification and formats them for database query routing.
+
+3. **`OpencodeTelemetryResolver` (`opencode`):**
+   * Targets `ai.streamText` spans.
+   * Extracts conversation titles by detecting dedicated title generator spans (`ai.streamText` with prompts containing `'title generator'` or `'thread title'`).
+   * Extracts prompts from user messages and tracks parent-child session relationships (aliasing) and subagent type mapping by parsing `ai.toolCall` payloads.
+
+### 🧠 Flat Extraction and Resolution Strategy
+
+* **Session Aliasing:** Maps subagent or client child sessions back to the parent session ID so all associated tokens are aggregated under a single unified conversation in the dashboard.
+* **Subagent Name Mapping:** Maps generated task/subagent runs to their respective logical subagent types (e.g., specific agent personas or tasks).
+* **Token Extraction:** Standardizes the extraction of input, output, cache read, cache write, and reasoning tokens across the varying attribute formats used by different IDE extensions and clients.
 
 ---
 
@@ -55,14 +74,14 @@ The analytical engine in the backend will avoid reconstructing complex hierarchi
 
 ### 📊 Relational Cost Table (`model_costs`)
 
-The system will maintain a dedicated SQLite table to map financial processing rates:
+The system maintains a dedicated SQLite table to map financial processing rates:
 
 * **Primary Key / ID:** `model_name` (Must match exactly the identifier string injected by OTel, e.g., `gpt-4o`).
-* **Columns:** `input_cost_per_m`, `output_cost_per_m`, `cache_cost_per_m`, `reasoning_cost_per_m` (All represented numerically based on cost per 1 million tokens).
+* **Columns:** `input_cost_per_m`, `output_cost_per_m`, `cache_read_cost_per_m`, `cache_write_cost_per_m`, `reasoning_cost_per_m` (All represented numerically based on cost per 1 million tokens).
 
 ### 🤖 Automatic Model Discovery (Auto-discovery)
 
-* If the webhook processes a span with a model that does not exist in the `model_costs` table, the backend will perform an **automatic hot insertion** with rates initialized to `$0.00`.
+* If the webhook processes a span with a model that does not exist in the `model_costs` table, the backend performs an **automatic hot insertion** with rates initialized to `$0.00`.
 * The backend will expose a **full REST API (CRUD)** at `/api/model-costs` so the frontend can read, update, or delete these rates directly.
 
 ---
@@ -109,8 +128,10 @@ Each individual conversation will feature an export menu generating a structured
 
 ### 🧹 Lifecycle and Data Cleanup
 
-* **Controlled Manual Purge:** No destructive background tasks will run automatically. The Vue UI will provide an explicit, confirmation-guarded **"Purge raw history"** button.
-* **Storage Optimization:** The associated endpoint will execute a `DELETE FROM raw_telemetry WHERE created_at < :date` followed immediately by SQLite's `VACUUM` command to reclaim actual user disk space.
+* **Controlled Manual Purge:** No destructive background tasks run automatically. The Vue UI provides explicit, confirmation-guarded actions:
+  1. **Purge Raw History:** Delete raw telemetry logs older than `N` days.
+  2. **Telemetry Without Tokens Cleanup:** Clean up and delete all historical raw telemetry records, atomic spans, and empty conversations that have zero token consumption.
+* **Storage Optimization:** These cleanups execute a transaction on SQLite followed by SQLite's `VACUUM` command to reclaim actual user disk space.
 * **Space Monitoring:** The backend will use Node.js's native `fs.stat` API to return the actual file size of the `.db` file in megabytes/gigabytes, displaying it prominently on the configuration dashboard.
 
 ---

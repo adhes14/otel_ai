@@ -1,6 +1,6 @@
-# VS Code Copilot Chat OTel Auditing & Reporting System
+# OTel Auditing & Reporting System
 
-A 100% local, privacy-focused tool designed to intercept, persist, and analyze telemetry metrics emitted by **VS Code Copilot Chat**. It operates as an autonomous OTLP/HTTP collector, parsing token usage and estimated costs broken down by model (for both standard and multi-agent orchestration flows).
+A 100% local, privacy-focused tool designed to intercept, persist, and analyze telemetry metrics emitted by **VS Code Copilot Chat**, **Copilot CLI**, and **Opencode**. It operates as an autonomous OTLP/HTTP collector, parsing token usage and estimated costs broken down by model (for both standard and multi-agent orchestration flows).
 
 ---
 
@@ -116,7 +116,7 @@ The application includes a fully responsive split master-detail dashboard featur
 *   **Model Cost Manager:** Full sub-view (`/settings/model-costs`) supporting rate creation, deletion, and inline edits. A status warning `⚠️ Cost not configured` badge alerts users to $0.00 rate models discovered via OTel telemetry.
 *   **Raw Telemetry Log Viewer:** A dedicated view (`/telemetry`) to browse intercepted raw telemetry logs (OTel traces) with an interactive JSON tree viewer, copy the raw JSON payload to the clipboard, or delete individual traces via a safety confirmation modal.
 *   **Conversation Export System:** In-header actions allowing copying a structured Markdown report of the session (adhering to active model filter pills) directly to the clipboard, or printing/saving as PDF using a print media-optimized stylesheet.
-*   **System Settings & Maintenance:** Dedicated configuration panel (`/settings`) showing the local database file size (auto-refreshable) and allowing purging of raw telemetry logs older than `N` days (with a safety confirmation modal), as well as rebuilding all derived conversation and span data from historical raw telemetry logs.
+*   **System Settings & Maintenance:** Dedicated configuration panel (`/settings`) showing the local database file size (auto-refreshable) and allowing purging of raw telemetry logs older than `N` days, cleaning up telemetry records with zero token consumption (both with safety confirmation modals), as well as rebuilding all derived conversation and span data from historical raw telemetry logs.
 
 ---
 
@@ -158,4 +158,5 @@ pnpm test
 ### ⚙️ System Maintenance
 *   **`GET /api/maintenance/db-stat`**: Returns the local SQLite database file size in bytes and megabytes.
 *   **`DELETE /api/maintenance/raw-telemetry?older_than_days=N`**: Deletes raw telemetry log records older than `N` days, checkpoints the WAL, and vacuums the database to release unused disk space back to the filesystem.
+*   **`DELETE /api/maintenance/clear-no-tokens`**: Deletes all raw telemetry records, atomic spans, and conversations that have zero token consumption (input tokens <= 0), checkpoints the WAL, and vacuums the database.
 *   **`POST /api/maintenance/reprocess`**: Clears derived `conversations` and `atomic_spans` tables and re-processes all stored `raw_telemetry` records chronologically to rebuild the database.
